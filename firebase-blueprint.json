@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Google email" },
+        "displayName": { "type": "string", "description": "Google name" },
+        "photoURL": { "type": "string", "description": "Google photo URL" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "imageCount": { "type": "number", "description": "Generated images count" },
+        "maxImages": { "type": "number", "description": "Limit of image generation" },
+        "maxChats": { "type": "number", "description": "Limit of chats" },
+        "isActive": { "type": "boolean", "description": "Whether user is active" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "lastLoginAt": { "type": "number", "description": "Last login timestamp" }
+      },
+      "required": ["email", "displayName", "role", "imageCount", "maxImages", "maxChats", "isActive"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation session",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Reference to the User document" },
+        "title": { "type": "string", "description": "Chat title" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "updatedAt": { "type": "number", "description": "Last update timestamp" },
+        "messageCount": { "type": "number", "description": "Number of messages" },
+        "isArchived": { "type": "boolean", "description": "Whether chat is archived" }
+      },
+      "required": ["userId", "title", "createdAt", "updatedAt", "messageCount"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message within a chat",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "description": "Reference to the Chat document" },
+        "userId": { "type": "string", "description": "Reference to the User document" },
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "content": { "type": "string", "description": "Text content" },
+        "imageUrls": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "URLs of images sent by the user"
+        },
+        "generatedImageUrls": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "URLs of generated flyers"
+        },
+        "createdAt": { "type": "number", "description": "Creation timestamp" }
+      },
+      "required": ["chatId", "userId", "role", "content", "imageUrls", "generatedImageUrls", "createdAt"]
+    },
+    "AdminConfig": {
+        "title": "Admin Config",
+        "description": "Global configuration",
+        "type": "object",
+        "properties": {
+            "systemPrompt": { "type": "string", "description": "System prompt for AI" },
+            "apiKey": { "type": "string", "description": "Encrypted OpenAI API Key" },
+            "model": { "type": "string", "description": "Chat model name" },
+            "imageModel": { "type": "string", "description": "Image model name" },
+            "maxTokens": { "type": "number", "description": "Max tokens" },
+            "temperature": { "type": "number", "description": "Temperature" }
+        },
+        "required": ["systemPrompt", "model", "imageModel"]
+    },
+    "UsageLog": {
+        "title": "Usage Log",
+        "description": "Audit log for actions",
+        "type": "object",
+        "properties": {
+            "userId": { "type": "string", "description": "User ID" },
+            "action": { "type": "string", "description": "Action performed" },
+            "chatId": { "type": "string", "description": "Chat ID" },
+            "timestamp": { "type": "number", "description": "Timestamp" }
+        },
+        "required": ["userId", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User accounts"
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "Chat sessions"
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Messages within chats"
+    },
+    "/adminConfig/{docId}": {
+        "schema": { "$ref": "#/entities/AdminConfig" },
+        "description": "Global settings"
+    },
+    "/usageLogs/{logId}": {
+        "schema": { "$ref": "#/entities/UsageLog" },
+        "description": "Audit logs"
+    }
+  }
+}
