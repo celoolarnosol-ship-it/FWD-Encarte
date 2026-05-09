@@ -1,34 +1,50 @@
-import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp, getApps, getApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import fs from 'fs';
 import path from 'path';
 
-// Since we are running on Google Cloud Run natively in AI Studio, Application Default Credentials (ADC) are sufficient for firebase-admin,
-// or we can use the injected configuration from environment but AI Studio does not inject firebase-admin credentials automatically.
-// Wait! If ai-studio provides firebase setup, how do we use firebase-admin?
-// The recommended way is to just call `initializeApp()` which uses ADC (Application Default Credentials).
 let projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 let databaseId = "(default)";
 let storageBucket = undefined;
+
 try {
   const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   projectId = projectId || config.projectId;
   if (config.firestoreDatabaseId) databaseId = config.firestoreDatabaseId;
-  if (config.storageBucket) storageBucket = config.storageBucket;
   
+  if (config.storageBucket) {
+    storageBucket = config.storageBucket;
+  } else {
+    storageBucket = `${projectId}.appspot.com`;
+  }
+  
+  // LOG THE ATTEMPTED BUCKET
   console.log("Firebase Admin Initialized with Project:", projectId, "StorageBucket:", storageBucket);
 } catch (err) {
-  console.warn("Could not read firebase-applet-config.json");
+  console.warn("Could not read firebase-applet-config.json:", err);
+  if (projectId) storageBucket = `${projectId}.appspot.com`;
 }
 
-const app = getApps().length > 0 ? getApp() : initializeApp({
-    projectId: projectId,
-    storageBucket: storageBucket
-});
+// Fallback to project ID if bucket is still not set
+if (!storageBucket && projectId) {
+    storageBucket = `${projectId}.appspot.com`;
+}
 
-export const adminDb = getFirestore(app, databaseId);
+const appOptions: any = {
+    projectId: projectId
+};
+
+// Only add storageBucket if it's explicitly provided and not just the default guess
+if (storageBucket && !storageBucket.includes('firebasestorage.app')) {
+  appOptions.storageBucket = storageBucket;
+}
+
+const app = getApps().length > 0 ? getApp() : initializeApp(appOptions);
+
 export const adminAuth = getAuth(app);
-export const adminStorage = getStorage(app);
+export const adminDb = getFirestore(app);
+export const adminBucket = getStorage(app).bucket(storageBucket); // Use the guess or config value
+export { projectId };

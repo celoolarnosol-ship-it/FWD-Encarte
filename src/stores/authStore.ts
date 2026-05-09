@@ -2,14 +2,15 @@ import { create } from 'zustand';
 import { User as FirebaseUser } from 'firebase/auth';
 
 interface UserData {
+  id: string;
   email: string;
-  displayName: string;
-  photoURL: string;
+  display_name: string;
+  photo_url: string;
   role: 'user' | 'admin';
-  imageCount: number;
-  maxImages: number;
-  maxChats: number;
-  isActive: boolean;
+  image_count: number;
+  max_images: number;
+  max_chats: number;
+  is_active: boolean;
 }
 
 interface AuthState {

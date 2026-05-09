@@ -2,7 +2,8 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import multer from "multer";
-import { adminAuth, adminStorage, adminDb } from "./src/lib/firebase/admin.js";
+import { adminAuth, adminDb, projectId } from "./src/lib/firebase/admin.js";
+import { StorageService } from "./src/services/storageService.js";
 import OpenAI from "openai";
 import crypto from "crypto";
 
@@ -14,49 +15,26 @@ async function startServer() {
 
   app.use(express.json());
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.get("/api/admin/status", async (req, res) => {
     try {
-      res.json({ status: "ok" });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal Server Error' });
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+      const decodedUser = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+      if (decodedUser.email !== 'celoolarnosol@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+
+      const status = await StorageService.checkStatus();
+
+      res.json({
+        hasFirebaseStorage: status.connected,
+        storageType: status.type,
+        bucketName: status.bucket,
+        projectId: projectId,
+        isProduction: process.env.NODE_ENV === 'production'
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
-
-  let resolvedBucket: any = null;
-  const getBucket = async () => {
-    if (resolvedBucket) return resolvedBucket;
-
-    const configBucket = adminStorage.app.options.storageBucket;
-    const projectId = adminStorage.app.options.projectId;
-    
-    // AI Studio storage often works with the config bucket, 
-    // but sometimes it fails metadata checks due to permission 403.
-    // We try to return it even if getMetadata fails, but we try a few variants first.
-    const names = [
-        configBucket,
-        `${projectId}.appspot.com`,
-        `${projectId}.firebasestorage.app`
-    ].filter(Boolean) as string[];
-
-    for (const name of names) {
-        try {
-            const b = adminStorage.bucket(name);
-            await b.getMetadata();
-            resolvedBucket = b;
-            return b;
-        } catch (e: any) {
-             if (e.code === 403) {
-                 // 403 means it exists but we can't see metadata. Use it anyway.
-                 resolvedBucket = adminStorage.bucket(name);
-                 return resolvedBucket;
-             }
-        }
-    }
-
-    resolvedBucket = adminStorage.bucket(configBucket || (projectId ? `${projectId}.appspot.com` : undefined));
-    return resolvedBucket;
-  };
 
   // User File Management
   app.post("/api/chat/upload", upload.array('files'), async (req, res) => {
@@ -72,15 +50,12 @@ async function startServer() {
           const chatId = req.query.chatId as string;
           if (!chatId) return res.status(400).json({ error: 'Missing chatId' });
 
-          const bucket = await getBucket();
           const urls = [];
           
           for (const file of files) {
               const fileName = `products/${uid}/${chatId}/${Date.now()}_${file.originalname}`;
-              const fileUpload = bucket.file(fileName);
-              await fileUpload.save(file.buffer, { contentType: file.mimetype });
-              await fileUpload.makePublic();
-              urls.push(`https://storage.googleapis.com/${bucket.name}/${fileName}`);
+              const publicUrl = await StorageService.uploadFile(file, fileName);
+              urls.push(publicUrl);
           }
           res.json({ urls });
       } catch (e: any) {
@@ -89,7 +64,7 @@ async function startServer() {
       }
   });
 
-  // Admin File Management
+  // Admin File Management (Knowledge Base)
   app.get("/api/admin/files", async (req, res) => {
       try {
           const authHeader = req.headers.authorization;
@@ -97,22 +72,10 @@ async function startServer() {
           const decodedUser = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
           if (decodedUser.email !== 'celoolarnosol@gmail.com') return res.status(403).json({ error: 'Forbidden' });
 
-          const bucket = await getBucket();
-          const [files] = await bucket.getFiles({ prefix: 'admin/knowledge-base/' });
-          
-          const fileData = files.map(file => {
-              const name = file.name.split('/').pop();
-              return {
-                  name: name,
-                  url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.name)}?alt=media`,
-                  fullPath: file.name,
-                  size: file.metadata.size,
-                  updated: file.metadata.updated
-              };
-          });
-          res.json({ files: fileData.filter(f => f.name) });
+          const files = await StorageService.listFiles('knowledge-base/');
+          res.json({ files });
       } catch (e: any) {
-          console.error("GET files error:", e);
+          console.error(`GET files error:`, e);
           res.status(500).json({ error: e.message });
       }
   });
@@ -127,32 +90,13 @@ async function startServer() {
           const files = req.files as Express.Multer.File[];
           if (!files || files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
 
-          const bucket = await getBucket();
-          
           for (const file of files) {
-              const fileName = `admin/knowledge-base/${file.originalname}`;
-              const fileUpload = bucket.file(fileName);
-              await fileUpload.save(file.buffer, { 
-                  contentType: file.mimetype,
-                  resumable: false,
-                  validation: false
-              });
-              try {
-                  await fileUpload.makePublic();
-              } catch (e: any) {
-                  console.warn("Could not make file public:", e.message);
-              }
+              await StorageService.uploadFile(file, `knowledge-base/${file.originalname}`);
           }
           res.json({ status: 'ok' });
       } catch (e: any) {
           console.error("Admin storage upload error:", e);
-          res.status(500).json({ 
-              error: { 
-                  message: e.message, 
-                  code: e.code, 
-                  details: e.errors || e.response?.data
-              } 
-          });
+          res.status(500).json({ error: e.message });
       }
   });
 
@@ -166,8 +110,7 @@ async function startServer() {
           const fullPath = req.body.fullPath;
           if (!fullPath) return res.status(400).json({ error: 'Missing path' });
 
-          const bucket = await getBucket();
-          await bucket.file(fullPath).delete();
+          await StorageService.deleteFile(fullPath);
           res.json({ status: 'ok' });
       } catch (e: any) {
           res.status(500).json({ error: e.message });

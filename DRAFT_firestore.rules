@@ -21,11 +21,8 @@ service cloud.firestore {
         && data.email is string && data.email.size() <= 256
         && (!('display_name' in data) || (data.display_name is string && data.display_name.size() <= 128))
         && (!('role' in data) || (data.role in ['user', 'admin']))
-        && (!('photo_url' in data) || (data.photo_url is string))
-        && (!('image_count' in data) || (data.image_count is int))
-        && (!('max_images' in data) || (data.max_images is int))
-        && (!('max_chats' in data) || (data.max_chats is int))
-        && (!('is_active' in data) || (data.is_active is bool))
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
+        && (!('location' in data) || (data.location is string && data.location.size() <= 128))
         && (!('created_at' in data) || (data.created_at is timestamp));
     }
 
@@ -35,36 +32,34 @@ service cloud.firestore {
         && (!('title' in data) || (data.title is string && data.title.size() <= 256))
         && (!('message_count' in data) || (data.message_count is int))
         && (!('is_archived' in data) || (data.is_archived is bool))
-        && (!('last_message' in data) || (data.last_message is string && data.last_message.size() <= 1000))
-        && (!('updated_at' in data) || (data.updated_at is timestamp));
+        && (!('last_message' in data) || (data.last_message is string && data.last_message.size() <= 1000));
     }
 
     function isValidMessage(data) {
       return data.keys().hasAll(['chat_id', 'user_id', 'role', 'content'])
         && data.user_id == request.auth.uid
         && data.role in ['user', 'assistant']
-        && data.content is string && data.content.size() <= 20000
-        && (!('image_urls' in data) || (data.image_urls is list && data.image_urls.size() <= 10))
-        && (!('generated_image_urls' in data) || (data.generated_image_urls is list))
-        && (!('created_at' in data) || (data.created_at is timestamp));
+        && data.content is string && data.content.size() <= 10000
+        && (!('image_urls' in data) || (data.image_urls is list && data.image_urls.size() <= 10));
     }
 
     function isValidAdminConfig(data) {
-      return (!('system_prompt' in data) || (data.system_prompt is string && data.system_prompt.size() <= 10000))
+      return (!('system_prompt' in data) || (data.system_prompt is string && data.system_prompt.size() <= 5000))
         && (!('model' in data) || (data.model is string && data.model.size() <= 128))
         && (!('image_model' in data) || (data.image_model is string && data.image_model.size() <= 128))
         && (!('temperature' in data) || (data.temperature is float || data.temperature is int))
-        && (!('max_tokens' in data) || (data.max_tokens is int))
-        && (!('updated_at' in data) || (data.updated_at is timestamp));
+        && (!('max_tokens' in data) || (data.max_tokens is int));
     }
 
     // 1. Profiles
     match /profiles/{userId} {
       allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow delete: if isAdmin();
+      allow create: if isSignedIn() && isOwner(userId) && isValidProfile(incoming()) && incoming().role == 'user'; // Users can't self-promote to admin
+      allow update: if isSignedIn() && (
+        (isOwner(userId) && isValidProfile(incoming()) && incoming().role == existing().role && incoming().id == existing().id) ||
+        isAdmin()
+      );
     }
 
     // 2. Chats

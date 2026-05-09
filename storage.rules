@@ -1,0 +1,21 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Admin knowledge base - Restricted to the admin email
+    match /admin/knowledge-base/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.token.email == 'celoolarnosol@gmail.com';
+      allow write: if request.auth != null && request.auth.token.email == 'celoolarnosol@gmail.com';
+    }
+    
+    // Product images and artifacts
+    match /products/{userId}/{chatId}/{allPaths=**} {
+      allow read: if true; // Publicly readable for flyers
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

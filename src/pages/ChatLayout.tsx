@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
-import { auth, db } from '../lib/firebase/client';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase/client';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Menu, Plus, Settings, LogOut, MessageSquare, Trash2 } from 'lucide-react';
@@ -16,16 +16,23 @@ export default function ChatLayout() {
 
   useEffect(() => {
     if (auth.currentUser) {
-        const q = query(
-            collection(db, 'chats'),
-            where('userId', '==', auth.currentUser.uid),
-            orderBy('updatedAt', 'desc')
-        );
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedChats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-            setChats(fetchedChats);
-        });
-        return () => unsubscribe();
+      const q = query(
+        collection(db, 'chats'),
+        where('user_id', '==', auth.currentUser.uid),
+        orderBy('updated_at', 'desc')
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const chatList = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as any[];
+        setChats(chatList);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'chats');
+      });
+
+      return () => unsubscribe();
     }
   }, [setChats]);
 
@@ -35,7 +42,7 @@ export default function ChatLayout() {
   };
 
   const handleNewChat = () => {
-    if (chats.length >= (userData?.maxChats || 5)) {
+    if (chats.length >= (userData?.max_chats || 5)) {
         toast.error('Limite de chats atingido. Delete um para criar outro.');
         return;
     }
@@ -95,26 +102,26 @@ export default function ChatLayout() {
           <div className="bg-white/5 rounded-xl p-3">
             <div className="flex justify-between text-xs mb-2">
               <span className="text-slate-400">Cota de Imagens</span>
-              <span className="text-white font-bold">{userData?.imageCount || 0}/{userData?.maxImages || 300}</span>
+              <span className="text-white font-bold">{userData?.image_count || 0}/{userData?.max_images || 300}</span>
             </div>
             <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
               <div 
                 className="bg-[var(--color-primary)] h-full" 
-                style={{ width: `${Math.min(((userData?.imageCount || 0) / (userData?.maxImages || 300)) * 100, 100)}%` }}
+                style={{ width: `${Math.min(((userData?.image_count || 0) / (userData?.max_images || 300)) * 100, 100)}%` }}
               ></div>
             </div>
           </div>
           <div className="flex items-center gap-3 px-2">
-            {userData?.photoURL ? (
-              <img src={userData.photoURL} alt="" className="w-10 h-10 rounded-full" />
+            {userData?.photo_url ? (
+              <img src={userData.photo_url} alt="" className="w-10 h-10 rounded-full bg-white/10" />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center font-bold text-white">
-                {userData?.displayName?.charAt(0) || 'U'}
+              <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center font-bold text-white shrink-0">
+                {userData?.display_name?.charAt(0) || auth.currentUser?.email?.charAt(0).toUpperCase() || 'U'}
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{userData?.displayName}</div>
-              <div className="text-xs text-slate-400">{userData?.role === 'admin' ? 'Admin' : 'Usuário'}</div>
+              <div className="text-sm font-medium truncate">{userData?.display_name || auth.currentUser?.email?.split('@')[0]}</div>
+              <div className="text-xs text-slate-400 capitalize">{userData?.role || 'Usuário'}</div>
             </div>
             <div className="flex gap-1 -mr-2">
               {userData?.role === 'admin' && (

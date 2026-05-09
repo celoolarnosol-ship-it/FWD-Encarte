@@ -13,7 +13,10 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
+    "@aws-sdk/lib-storage": "^3.1045.0",
     "@base-ui/react": "^1.4.1",
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@firebase/storage": "^0.14.2",
     "@fontsource-variable/geist": "^5.2.8",
     "@google/genai": "^1.29.0",

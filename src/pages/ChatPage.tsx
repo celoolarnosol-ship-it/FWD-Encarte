@@ -7,8 +7,9 @@ import { useChatStore } from '../stores/chatStore';
 import { useParams, useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { toast } from 'sonner';
-import { auth, db } from '../lib/firebase/client';
-import { collection, query, where, orderBy, onSnapshot, addDoc, doc, getDoc, getDocs, updateDoc, increment } from 'firebase/firestore';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase/client';
+import { doc, collection, query, where, orderBy, onSnapshot, addDoc, getDoc, updateDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { AI_CONFIG } from '../constants/aiConfig';
 
 export default function ChatPage() {
   const { chatId } = useParams();
@@ -22,11 +23,21 @@ export default function ChatPage() {
   useEffect(() => {
      setActiveChatId(chatId || null);
      if (chatId) {
-         const q = query(collection(db, 'messages'), where('chatId', '==', chatId), orderBy('createdAt', 'asc'));
+         const q = query(
+           collection(db, `chats/${chatId}/messages`),
+           orderBy('created_at', 'asc')
+         );
+
          const unsubscribe = onSnapshot(q, (snapshot) => {
-             const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-             setMessages(msgs);
+           const messageList = snapshot.docs.map(doc => ({
+             id: doc.id,
+             ...doc.data()
+           })) as any[];
+           setMessages(messageList);
+         }, (error) => {
+           handleFirestoreError(error, OperationType.LIST, `chats/${chatId}/messages`);
          });
+
          return () => unsubscribe();
      } else {
          setMessages([]);
@@ -43,16 +54,19 @@ export default function ChatPage() {
     let currentChatId = chatId;
     
     if (!currentChatId) {
-        const chatRef = await addDoc(collection(db, 'chats'), {
-            userId: auth.currentUser?.uid,
-            title: message.substring(0, 30) + (message.length > 30 ? '...' : ''),
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            messageCount: 0,
-            isArchived: false,
-        });
-        currentChatId = chatRef.id;
-        navigate(`/chat/${currentChatId}`);
+        try {
+            const newChat = await addDoc(collection(db, 'chats'), {
+                user_id: auth.currentUser?.uid,
+                title: message.substring(0, 30) + (message.length > 30 ? '...' : ''),
+                message_count: 0,
+                is_archived: false,
+                updated_at: serverTimestamp()
+            });
+            currentChatId = newChat.id;
+            navigate(`/chat/${currentChatId}`);
+        } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, 'chats');
+        }
     }
 
     const currentMessage = message;
@@ -80,39 +94,40 @@ export default function ChatPage() {
             } else {
                 const err = await uploadRes.json();
                 toast.error("Erro no upload de imagens: " + err.error);
-                // Continue without images or stop? Let's continue if possible but notify.
             }
         }
 
         // Save user message to Firestore
-        await addDoc(collection(db, 'messages'), {
-           chatId: currentChatId,
-           userId: auth.currentUser?.uid,
-           role: 'user',
-           content: currentMessage,
-           imageUrls: uploadedImageUrls,
-           generatedImageUrls: [],
-           createdAt: Date.now()
-        });
+        try {
+            await addDoc(collection(db, `chats/${currentChatId}/messages`), {
+                chat_id: currentChatId,
+                user_id: auth.currentUser?.uid,
+                role: 'user',
+                content: currentMessage,
+                image_urls: uploadedImageUrls,
+                generated_image_urls: [],
+                created_at: serverTimestamp()
+            });
+        } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, `chats/${currentChatId}/messages`);
+        }
 
-        // Load config
-        const configDoc = await getDoc(doc(db, 'adminConfig', 'settings'));
-        const configData = configDoc.exists() ? configDoc.data() : {};
-        const systemPrompt = configData.systemPrompt || "You are an expert promotional flyer designer.";
+        // Use static AI_CONFIG from constants
+        let systemPrompt = AI_CONFIG.mainPrompt;
+        if (AI_CONFIG.technicalPrompts.length > 0) {
+            systemPrompt += `\n\nORIENTAÇÕES TÉCNICAS:\n${AI_CONFIG.technicalPrompts.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
+        }
+        const configData = AI_CONFIG;
 
-        // Load history
-        const historySnapshot = await getDocs(query(
-            collection(db, 'messages'), 
-            where('chatId', '==', currentChatId), 
-            orderBy('createdAt', 'asc')
-        ));
-        const history = historySnapshot.docs.map(d => d.data());
+        // Load history for AI
+        const historySnap = await getDocs(query(collection(db, `chats/${currentChatId}/messages`), orderBy('created_at', 'asc')));
+        const history = historySnap.docs.map(d => d.data());
 
         const messagesPayload: any[] = [ { role: "system", content: systemPrompt } ];
         for (const msg of history) {
             if (msg.role === 'user') {
                 const contentArr: any[] = [{ type: "text", text: msg.content }];
-                (msg.imageUrls || []).forEach((url: string) => contentArr.push({ type: "image_url", image_url: { url, detail: "high" } }));
+                (msg.image_urls || []).forEach((url: string) => contentArr.push({ type: "image_url", image_url: { url, detail: "high" } }));
                 messagesPayload.push({ role: "user", content: contentArr });
             } else if (msg.role === 'assistant') {
                 messagesPayload.push({ role: "assistant", content: msg.content });
@@ -138,8 +153,6 @@ export default function ChatPage() {
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
 
-        // While AI is generating, we wait for the final message to save it into Firestore
-        // For UI, we could have a temporary state, but let's just wait for 'done' to save it.
         if (reader) {
             while (true) {
                 const { done, value } = await reader.read();
@@ -155,25 +168,28 @@ export default function ChatPage() {
                             const data = JSON.parse(dataText);
                             if (data.type === 'done') {
                                 // Save AI assistant message
-                                await addDoc(collection(db, 'messages'), {
-                                    chatId: currentChatId,
-                                    userId: auth.currentUser?.uid,
+                                await addDoc(collection(db, `chats/${currentChatId}/messages`), {
+                                    chat_id: currentChatId,
+                                    user_id: auth.currentUser?.uid,
                                     role: 'assistant',
                                     content: data.fullText,
-                                    imageUrls: [],
-                                    generatedImageUrls: data.imageUrl ? [data.imageUrl] : [],
-                                    createdAt: Date.now()
+                                    image_urls: [],
+                                    generated_image_urls: data.imageUrl ? [data.imageUrl] : [],
+                                    created_at: serverTimestamp()
                                 });
 
                                 // Increment usage
-                                const userRef = doc(db, 'users', auth.currentUser!.uid);
-                                await updateDoc(userRef, { imageCount: increment(1) });
+                                const newImageCount = (userData?.image_count || 0) + 1;
+                                await updateDoc(doc(db, 'profiles', auth.currentUser!.uid), {
+                                    image_count: newImageCount
+                                });
                                 
-                                const chatRef = doc(db, 'chats', currentChatId!);
-                                await updateDoc(chatRef, { updatedAt: Date.now(), messageCount: increment(2) });
+                                await updateDoc(doc(db, 'chats', currentChatId), { 
+                                    updated_at: serverTimestamp(),
+                                    message_count: history.length + 2
+                                });
 
-                                const newImageCount = (userData?.imageCount || 0) + 1;
-                                setUserData({ ...userData!, imageCount: newImageCount });
+                                setUserData({ ...userData!, image_count: newImageCount });
                             }
                         } catch (e) { console.error('Parse error', e); }
                     }
@@ -214,9 +230,9 @@ export default function ChatPage() {
                   {msg.role === 'assistant' && (
                      <p className="mb-2 font-medium text-[var(--color-primary)] text-sm">Assistente EncartIA</p>
                   )}
-                  {msg.imageUrls?.length > 0 && (
+                  {msg.image_urls?.length > 0 && (
                       <div className="flex gap-2 flex-wrap mb-3">
-                          {msg.imageUrls.map((url: string, i: number) => (
+                          {msg.image_urls.map((url: string, i: number) => (
                               <div key={i} className="w-16 h-16 bg-white/20 rounded-lg border border-white/20 flex items-center justify-center overflow-hidden">
                                  <img src={url} alt="upload" className="w-full h-full object-cover" />
                               </div>
@@ -226,13 +242,13 @@ export default function ChatPage() {
                   <div className="markdown-body text-sm leading-relaxed prose prose-sm max-w-none">
                     <Markdown>{msg.content}</Markdown>
                   </div>
-                  {msg.generatedImageUrls?.length > 0 && (
+                  {msg.generated_image_urls?.length > 0 && (
                       <div className="mt-4 bg-slate-50 border border-slate-100 p-2 rounded-2xl shadow-lg inline-block relative group">
-                          {msg.generatedImageUrls.map((url: string, i: number) => (
+                          {msg.generated_image_urls.map((url: string, i: number) => (
                               <img key={i} src={url} alt="encarte gerado" className="max-w-full md:max-w-md rounded-xl shadow-sm" />
                           ))}
                           <div className="mt-3 flex justify-end items-center px-2 pb-1">
-                             <a href={msg.generatedImageUrls[0]} target="_blank" rel="noopener noreferrer" className="bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm inline-flex">Download High-Res</a>
+                             <a href={msg.generated_image_urls[0]} target="_blank" rel="noopener noreferrer" className="bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm inline-flex">Download High-Res</a>
                           </div>
                       </div>
                   )}
@@ -299,7 +315,7 @@ export default function ChatPage() {
             
             <button 
               onClick={handleSend}
-              disabled={(!message.trim() && images.length === 0) || userData?.imageCount! >= userData?.maxImages!}
+              disabled={(!message.trim() && images.length === 0) || userData?.image_count! >= userData?.max_images!}
               className="absolute right-3 top-1/2 -translate-y-1/2 bg-[var(--color-primary)] text-white p-2.5 rounded-xl hover:bg-[var(--color-primary-hover)] transition-colors shadow-sm disabled:opacity-50"
             >
               <Send className="w-5 h-5 flex-shrink-0" />

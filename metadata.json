@@ -1,6 +1,6 @@
 {
   "name": "FWD ENCARTE",
-  "description": "",
+  "description": "Aplicativo para criação e gerenciamento de encartes de supermercado com suporte a upload de arquivos e processamento via IA.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
