@@ -27,26 +27,37 @@ export default function AdminDashboard() {
         <h2 className="text-xl font-bold text-slate-800">Painel de Gerenciamento</h2>
         {serverStatus && (
           <div className="flex gap-2">
+            {!serverStatus.hasOpenAIKey && (
+              <span className="bg-red-100 text-red-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-red-200">
+                ⚠️ OPENAI KEY AUSENTE
+              </span>
+            )}
+            {serverStatus.hasOpenAIKey && (
+              <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-emerald-100">
+                ✅ OpenAI Ativa
+              </span>
+            )}
+
             {!serverStatus.hasFirebaseStorage ? (
               <div className="flex gap-2">
                 {serverStatus.storageType === 'R2' ? (
                   <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-amber-200">
-                    ⚠️ R2 CONEXÃO FALHOU (Verifique API Keys)
+                    ⚠️ R2 FALHOU
                   </span>
                 ) : (
                   <a 
                     href={`https://console.firebase.google.com/project/${serverStatus.projectId}/storage`}
                     target="_blank"
                     rel="noreferrer"
-                    className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-amber-200 hover:bg-amber-200 transition-colors"
+                    className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold border border-amber-200 hover:bg-amber-200 transition-colors"
                   >
-                    ⚠️ STORAGE NÃO CONFIGURADO (Clique para Habilitar)
+                    ⚠️ STORAGE DESATIVADO
                   </a>
                 )}
               </div>
             ) : (
                 <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-emerald-100">
-                    ✅ {serverStatus.storageType || 'Storage'} Conectado
+                    ✅ {serverStatus.storageType || 'Storage'} OK
                 </span>
             )}
           </div>

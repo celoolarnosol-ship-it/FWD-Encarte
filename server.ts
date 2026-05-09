@@ -28,6 +28,7 @@ async function startServer() {
         hasFirebaseStorage: status.connected,
         storageType: status.type,
         bucketName: status.bucket,
+        hasOpenAIKey: !!process.env.OPENAI_API_KEY,
         projectId: projectId,
         isProduction: process.env.NODE_ENV === 'production'
       });
@@ -137,25 +138,80 @@ async function startServer() {
       res.setHeader('Connection', 'keep-alive');
       
       let aiText = "";
+      const isReasoningModel = config?.model === "gpt-5.5";
+
+      // Helper to extract text from multi-modal content
+      const getMessageText = (content: any) => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+          return content
+            .map(item => item.type === 'text' ? item.text : (item.type === 'image_url' ? '[Imagem enviada pelo usuário]' : ''))
+            .join(' ');
+        }
+        return '';
+      };
+
       try {
-          const stream = await openai.chat.completions.create({
-            model: config?.model || "gpt-4o",
-            messages,
-            max_tokens: config?.maxTokens || 2000,
-            temperature: config?.temperature || 0.7,
-            stream: true,
-          });
-          
-          for await (const chunk of stream) {
-              const content = chunk.choices[0]?.delta?.content || '';
-              aiText += content;
-              if (content) {
-                  res.write(`data: ${JSON.stringify({ type: 'text', content })}\n\n`);
+          if (isReasoningModel) {
+            // Using responses.create for reasoning models as per OpenAI recommendation
+            // We use a try-catch specifically for this as it might not be supported in all SDK versions
+            try {
+              const response = await (openai as any).responses.create({
+                model: "gpt-5.5",
+                input: messages.map((m: any) => `${m.role}: ${getMessageText(m.content)}`).join('\n'),
+                reasoning: {
+                  effort: "high"
+                }
+              });
+              aiText = response.output_text || "";
+              
+              // Send text in manageable chunks to avoid buffer issues or truncation
+              const CHUNK_SIZE = 4000;
+              for (let i = 0; i < aiText.length; i += CHUNK_SIZE) {
+                const content = aiText.substring(i, i + CHUNK_SIZE);
+                res.write(`data: ${JSON.stringify({ type: 'text', content })}\n\n`);
               }
+            } catch (reasoningErr: any) {
+              console.error("Reasoning API failed, falling back to chat completions", reasoningErr);
+              // Fallback to chat completions if responses.create fails
+              const stream = await openai.chat.completions.create({
+                model: "gpt-4o",
+                messages,
+                max_tokens: config?.maxTokens || 2000,
+                temperature: config?.temperature || 0.7,
+                stream: true,
+              });
+              
+              for await (const chunk of stream) {
+                  const content = chunk.choices[0]?.delta?.content || '';
+                  aiText += content;
+                  if (content) {
+                      res.write(`data: ${JSON.stringify({ type: 'text', content })}\n\n`);
+                  }
+              }
+            }
+          } else {
+            const stream = await openai.chat.completions.create({
+              model: config?.model || "gpt-4o",
+              messages,
+              max_tokens: config?.maxTokens || 2000,
+              temperature: config?.temperature || 0.7,
+              stream: true,
+            });
+            
+            for await (const chunk of stream) {
+                const content = chunk.choices[0]?.delta?.content || '';
+                aiText += content;
+                if (content) {
+                    res.write(`data: ${JSON.stringify({ type: 'text', content })}\n\n`);
+                }
+            }
           }
       } catch (err: any) {
           console.error("OpenAI text generation error", err);
-          return res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+          res.end();
+          return;
       }
       
       // Generate Image
@@ -163,14 +219,26 @@ async function startServer() {
       
       let generatedImageUrl;
       try {
-          const imageResponse = await openai.images.generate({
-            model: config?.imageModel || "dall-e-3",
-            prompt: `Create a professional promotional flyer based on this text:\n\n${aiText.substring(0, 800)}\n\nStyle: Modern, retail promotional flyer format, high-quality, professional typography, bright and engaging. Do not use generic placeholders. Incorporate appropriate product representation if available from context.`,
-            n: 1,
-            size: "1024x1024",
-            quality: "standard"
-          });
-          generatedImageUrl = imageResponse.data[0].url;
+          try {
+            const imageResponse = await openai.images.generate({
+              model: config?.imageModel || "gpt-image-2",
+              prompt: `FOLLOW THIS DETAILED SCRIPT TO CREATE A PROFESSIONAL FLYER:\n\n${aiText.substring(0, 1500)}\n\nStyle: Modern retail promotional flyer. Formato: Story vertical 9:16. EXTREMELY IMPORTANT: Follow the color palette and icons mentioned in the script. Clear hierarchy, professional studio lighting, realistic products. ALL TEXT MUST BE IN BRAZILIAN PORTUGUESE.`,
+              n: 1,
+              size: "1024x1024",
+              quality: "standard"
+            });
+            generatedImageUrl = imageResponse.data[0].url;
+          } catch (imgErr: any) {
+            console.error("Image model generation failed, falling back to dall-e-3", imgErr);
+            const fallbackResponse = await openai.images.generate({
+              model: "dall-e-3",
+              prompt: `FOLLOW THIS DETAILED SCRIPT TO CREATE A PROFESSIONAL FLYER:\n\n${aiText.substring(0, 1500)}\n\nStyle: Modern retail promotional flyer. Formato: Story vertical 9:16. EXTREMELY IMPORTANT: Follow the color palette and icons mentioned in the script. Clear hierarchy, professional studio lighting, realistic products. ALL TEXT MUST BE IN BRAZILIAN PORTUGUESE.`,
+              n: 1,
+              size: "1024x1024",
+              quality: "standard"
+            });
+            generatedImageUrl = fallbackResponse.data[0].url;
+          }
           res.write(`data: ${JSON.stringify({ type: 'image', url: generatedImageUrl })}\n\n`);
       } catch (err: any) {
           console.error("OpenAI image generation error", err);
@@ -180,9 +248,18 @@ async function startServer() {
       res.write(`data: ${JSON.stringify({ type: 'done', fullText: aiText, imageUrl: generatedImageUrl })}\n\n`);
       res.end();
       
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal Server Error' });
+    } catch (error: any) {
+      console.error("Outer server error:", error);
+      if (!res.headersSent) {
+          res.status(500).json({ error: error.message || 'Internal Server Error' });
+      } else {
+          try {
+            res.write(`data: ${JSON.stringify({ type: 'error', message: error.message || 'Internal Server Error' })}\n\n`);
+            res.end();
+          } catch (e) {
+            console.error("Critical error while sending error signal", e);
+          }
+      }
     }
   });
 

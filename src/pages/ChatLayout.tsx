@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 
 export default function ChatLayout() {
   const { userData } = useAuthStore();
-  const { chats, setChats, activeChatId } = useChatStore();
+  const { chats, setChats, activeChatId, setActiveChatId } = useChatStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -42,10 +42,13 @@ export default function ChatLayout() {
   };
 
   const handleNewChat = () => {
-    if (chats.length >= (userData?.max_chats || 5)) {
-        toast.error('Limite de chats atingido. Delete um para criar outro.');
+    const limit = userData?.max_chats || 5;
+    if (chats.length >= limit) {
+        toast.error(`Limite de ${limit} chats atingido. Delete um para criar outro.`);
         return;
     }
+    // Set active chat to null first to trigger resets if needed
+    setActiveChatId(null);
     navigate('/chat');
     setSidebarOpen(false);
   };

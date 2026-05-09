@@ -18,11 +18,16 @@ export default function ChatPage() {
   const [images, setImages] = useState<File[]>([]);
   const { userData, setUserData } = useAuthStore();
   const { messages, activeChatId, setActiveChatId, setMessages } = useChatStore();
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
      setActiveChatId(chatId || null);
      if (chatId) {
+         // Clear current input when switching to an existing chat
+         setMessage('');
+         setImages([]);
+         
          const q = query(
            collection(db, `chats/${chatId}/messages`),
            orderBy('created_at', 'asc')
@@ -41,6 +46,9 @@ export default function ChatPage() {
          return () => unsubscribe();
      } else {
          setMessages([]);
+         // Also clear input when going to "New Chat" via button
+         setMessage('');
+         setImages([]);
      }
   }, [chatId, setActiveChatId, setMessages]);
 
@@ -50,7 +58,9 @@ export default function ChatPage() {
 
   const handleSend = async () => {
     if (!message.trim() && images.length === 0) return;
-    
+    if (isLoading) return;
+
+    setIsLoading(true);
     let currentChatId = chatId;
     
     if (!currentChatId) {
@@ -92,8 +102,19 @@ export default function ChatPage() {
                 const uploadData = await uploadRes.json();
                 uploadedImageUrls = uploadData.urls;
             } else {
-                const err = await uploadRes.json();
-                toast.error("Erro no upload de imagens: " + err.error);
+                const contentType = uploadRes.headers.get('content-type');
+                let uploadErrMsg = 'Erro desconhecido no upload';
+                if (contentType && contentType.includes('application/json')) {
+                    const errData = await uploadRes.json();
+                    uploadErrMsg = errData.error || errData.message || uploadErrMsg;
+                } else {
+                    const textErr = await uploadRes.text();
+                    console.error('Upload failed with HTML/text response:', textErr.substring(0, 200));
+                    uploadErrMsg = `Erro ${uploadRes.status} no servidor de upload`;
+                }
+                toast.error(uploadErrMsg);
+                setIsLoading(false);
+                return;
             }
         }
 
@@ -145,8 +166,18 @@ export default function ChatPage() {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            alert('Erro: ' + error.error);
+            const contentType = response.headers.get('content-type');
+            let errorMessage = 'Erro desconhecido';
+            if (contentType && contentType.includes('application/json')) {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorData.message || errorMessage;
+            } else {
+                const textError = await response.text();
+                console.error('Server returned non-JSON error:', textError.substring(0, 200));
+                errorMessage = `Erro do servidor (${response.status})`;
+            }
+            toast.error('Erro na resposta da IA: ' + errorMessage);
+            setIsLoading(false);
             return;
         }
 
@@ -154,18 +185,26 @@ export default function ChatPage() {
         const decoder = new TextDecoder();
 
         if (reader) {
+            let buffer = '';
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n');
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep the last incomplete line in the buffer
+                
                 for (const line of lines) {
                     if (line.startsWith('data: ')) {
                         const dataText = line.substring(6).trim();
                         if (!dataText) continue;
                         try {
                             const data = JSON.parse(dataText);
+                            if (data.type === 'error') {
+                                toast.error('IA Error: ' + data.message);
+                                setIsLoading(false);
+                                return;
+                            }
                             if (data.type === 'done') {
                                 // Save AI assistant message
                                 await addDoc(collection(db, `chats/${currentChatId}/messages`), {
@@ -198,6 +237,9 @@ export default function ChatPage() {
         }
     } catch (e) {
         console.error(e);
+        toast.error("Ocorreu um erro ao processar sua solicitação.");
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -315,10 +357,14 @@ export default function ChatPage() {
             
             <button 
               onClick={handleSend}
-              disabled={(!message.trim() && images.length === 0) || userData?.image_count! >= userData?.max_images!}
-              className="absolute right-3 top-1/2 -translate-y-1/2 bg-[var(--color-primary)] text-white p-2.5 rounded-xl hover:bg-[var(--color-primary-hover)] transition-colors shadow-sm disabled:opacity-50"
+              disabled={(!message.trim() && images.length === 0) || (userData?.image_count ?? 0) >= (userData?.max_images ?? 300) || isLoading}
+              className="absolute right-3 top-1/2 -translate-y-1/2 bg-[var(--color-primary)] text-white p-2.5 rounded-xl hover:bg-[var(--color-primary-hover)] transition-colors shadow-sm disabled:opacity-50 min-w-[44px] flex items-center justify-center"
             >
-              <Send className="w-5 h-5 flex-shrink-0" />
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5 flex-shrink-0" />
+              )}
             </button>
           </div>
         </div>

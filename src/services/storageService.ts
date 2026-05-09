@@ -1,5 +1,5 @@
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
-import { adminBucket } from "../lib/firebase/admin.js";
+import { getActiveBucket } from "../lib/firebase/admin.js";
 import { isR2Configured, s3Client, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } from "../lib/cloudflare/r2.js";
 import path from "path";
 
@@ -16,7 +16,8 @@ export class StorageService {
     if (isR2Configured && s3Client) {
       return { type: 'r2' as const, client: s3Client, bucket: R2_BUCKET_NAME! };
     }
-    return { type: 'firebase' as const, bucket: adminBucket };
+    const bucket = await getActiveBucket();
+    return { type: 'firebase' as const, bucket: bucket };
   }
 
   static async uploadFile(file: { originalname: string; buffer: Buffer; mimetype: string }, destination: string): Promise<string> {
@@ -31,17 +32,28 @@ export class StorageService {
       });
       await provider.client.send(command);
       
-      // If a public domain is configured, use it. Otherwise, use the R2 dev domain or similar.
       if (R2_PUBLIC_DOMAIN) {
         return `${R2_PUBLIC_DOMAIN}/${destination}`;
       }
-      return `https://pub-your-id.r2.dev/${destination}`; // Placeholder if no domain
+      return `https://pub-your-id.r2.dev/${destination}`;
     } else {
-      // Firebase logic
-      const blob = provider.bucket.file(destination);
-      await blob.save(file.buffer, { contentType: file.mimetype });
-      await blob.makePublic();
-      return `https://storage.googleapis.com/${provider.bucket.name}/${destination}`;
+      // Firebase logic - Try to find the correct bucket and upload
+      const bucket = provider.bucket;
+      const destinationPath = destination.startsWith('/') ? destination.substring(1) : destination;
+      
+      try {
+        console.log(`[Firebase Storage] Attempting upload to bucket: ${bucket.name}, path: ${destinationPath}`);
+        const blob = bucket.file(destinationPath);
+        await blob.save(file.buffer, { 
+          contentType: file.mimetype,
+          resumable: false // Sometimes resumable uploads fail in restricted environments
+        });
+        await blob.makePublic().catch(e => console.warn(`[Firebase Storage] makePublic failed for ${bucket.name}:`, e.message));
+        return `https://storage.googleapis.com/${bucket.name}/${destinationPath}`;
+      } catch (err: any) {
+        console.error(`[Firebase Storage] Upload to ${bucket.name} failed:`, err.message);
+        throw new Error(`Erro ao salvar no Firebase Storage (${bucket.name}): ${err.message}`);
+      }
     }
   }
 
