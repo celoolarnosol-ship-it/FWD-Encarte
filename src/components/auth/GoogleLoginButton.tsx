@@ -1,6 +1,7 @@
 import React from 'react';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '../../lib/firebase/client';
+import { auth, db } from '../../lib/firebase/client';
+import { doc, getDoc } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
@@ -8,7 +9,26 @@ export function GoogleLoginButton() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      if (!user.email) {
+          await auth.signOut();
+          throw new Error('Email não fornecido pelo Google.');
+      }
+
+      // Whitelist check
+      if (user.email.toLowerCase() !== 'celoolarnosol@gmail.com') {
+          const whitelistSnap = await getDoc(doc(db, 'config', 'whitelist'));
+          const authorizedEmails = whitelistSnap.exists() ? (whitelistSnap.data().emails || []) : [];
+          
+          if (!authorizedEmails.map((e: string) => e.toLowerCase()).includes(user.email.toLowerCase())) {
+              await auth.signOut();
+              toast.error('Acesso negado. Seu email não está autorizado.');
+              return;
+          }
+      }
+      
       // Backend automatically syncs as App.tsx sends POST to /api/auth/login
     } catch (error: any) {
       console.error(error);

@@ -15,26 +15,8 @@ export default function ChatLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (auth.currentUser) {
-      const q = query(
-        collection(db, 'chats'),
-        where('user_id', '==', auth.currentUser.uid),
-        orderBy('updated_at', 'desc')
-      );
-
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const chatList = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as any[];
-        setChats(chatList);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'chats');
-      });
-
-      return () => unsubscribe();
-    }
-  }, [setChats]);
+    // We no longer sync chats from Firestore for regular users
+  }, []);
 
   const handleLogout = async () => {
     await auth.signOut();
@@ -42,13 +24,7 @@ export default function ChatLayout() {
   };
 
   const handleNewChat = () => {
-    const limit = userData?.max_chats || 5;
-    if (chats.length >= limit) {
-        toast.error(`Limite de ${limit} chats atingido. Delete um para criar outro.`);
-        return;
-    }
-    // Set active chat to null first to trigger resets if needed
-    setActiveChatId(null);
+    // Navigate home which resets the chat page state
     navigate('/chat');
     setSidebarOpen(false);
   };
@@ -87,18 +63,9 @@ export default function ChatLayout() {
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          <div className="text-xs font-semibold text-slate-400 uppercase px-3 mb-2 tracking-wider">Recentes</div>
-          {chats.map(chat => (
-              <Link 
-                key={chat.id} 
-                to={`/chat/${chat.id}`}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 p-3 rounded-lg transition-colors cursor-pointer ${activeChatId === chat.id ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-slate-300'}`}
-              >
-                  <div className={`w-2 h-2 rounded-full ${activeChatId === chat.id ? 'bg-green-400' : 'bg-slate-500'}`}></div>
-                  <span className="text-sm truncate">{chat.title}</span>
-              </Link>
-          ))}
+          <div className="bg-white/5 p-4 rounded-xl text-xs text-slate-400 leading-relaxed italic">
+            Cada geração é única e temporária. Para criar um novo encarte, clique no botão acima.
+          </div>
         </nav>
 
         <div className="p-4 mt-auto border-t border-white/10 space-y-4">

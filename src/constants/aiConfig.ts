@@ -127,8 +127,8 @@ texto final é aplicado em editor gráfico.
     "CINEMATOGRAFIA E SENSORES: Ecossistema de captura high-end incluindo ARRI (Alexa 35 ALEV 4 con 17 stops), RED (V-RAPTOR [X] Global Shutter 8K), Sony CineAlta (Venice 2 8.6K), Phase One (IQ4 150MP) e Hasselblad (X2D 100MP). Câmeras Mirrorless de elite como Sony A1, Canon R3 e Nikon Z9. Drones avançados como DJI Inspire 3 (X9-8K Air).",
     "ÓPTICAS E RENDERIZAÇÃO: Lentes de cinema lendárias como ARRI Signature Primes, Cooke Look (S7/i), Angénieux Optimo e Zeiss Supreme. Mestres da luz como Ansel Adams (Sistema de Zonas), Annie Leibovitz e Sebastião Salgado. Softwares de ponta: DaVinci Resolve (color grading), Unreal Engine 5 (Nanite/Lumen), e motores de render como Octane (unbiased), Redshift e V-Ray (fotorrealismo clássico)."
   ],
-  model: "gpt-5.5",
-  imageModel: "gpt-image-2",
+  model: "gpt-4o",
+  imageModel: "dall-e-3",
   temperature: 0.7,
   maxTokens: 2500
 };

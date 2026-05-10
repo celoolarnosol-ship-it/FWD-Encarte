@@ -49,12 +49,9 @@ service cloud.firestore {
         && (!('created_at' in data) || (data.created_at is timestamp));
     }
 
-    function isValidAdminConfig(data) {
-      return (!('system_prompt' in data) || (data.system_prompt is string && data.system_prompt.size() <= 10000))
-        && (!('model' in data) || (data.model is string && data.model.size() <= 128))
-        && (!('image_model' in data) || (data.image_model is string && data.image_model.size() <= 128))
-        && (!('temperature' in data) || (data.temperature is float || data.temperature is int))
-        && (!('max_tokens' in data) || (data.max_tokens is int))
+    function isValidAppConfig(data) {
+      return (!('main_prompt' in data) || (data.main_prompt is string && data.main_prompt.size() <= 20000))
+        && (!('technical_instructions' in data) || (data.technical_instructions is list && data.technical_instructions.size() <= 50))
         && (!('updated_at' in data) || (data.updated_at is timestamp));
     }
 
@@ -67,30 +64,23 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 2. Chats
-    match /chats/{chatId} {
-      allow get: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
-      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow create: if isSignedIn() && isValidChat(incoming());
-      allow update: if isSignedIn() && (
-        (isOwner(existing().user_id) && isValidChat(incoming()) && incoming().user_id == existing().user_id) ||
-        isAdmin()
-      );
-      allow delete: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
-      
-      // 3. Messages Subcollection
-      match /messages/{messageId} {
-        allow get, list: if isSignedIn() && get(/databases/$(database)/documents/chats/$(chatId)).data.user_id == request.auth.uid;
-        allow create: if isSignedIn() && get(/databases/$(database)/documents/chats/$(chatId)).data.user_id == request.auth.uid && isValidMessage(incoming());
-        allow update, delete: if isSignedIn() && (get(/databases/$(database)/documents/chats/$(chatId)).data.user_id == request.auth.uid || isAdmin());
-      }
+    // 2. Config
+    match /config/settings {
+      allow get: if isSignedIn();
+      allow write: if isAdmin() && isValidAppConfig(incoming());
     }
 
-    // 4. Admin Config
-    match /admin_config/{configId} {
-      allow get: if true; // Everyone can see global settings for AI models
-      allow list: if isAdmin();
-      allow write: if isAdmin() && isValidAdminConfig(incoming());
+    match /config/whitelist {
+      allow get: if isSignedIn(); // Users need to check if they are whitelisted on login
+      allow write: if isAdmin();
+    }
+
+    // Legacy Support (optional, can keep for structural safety)
+    match /chats/{chatId} {
+      allow read, write: if false; 
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
     }
   }
 }

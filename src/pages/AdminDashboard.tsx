@@ -1,12 +1,77 @@
 import React, { useState, useEffect } from 'react';
-import { auth } from '../lib/firebase/client';
+import { auth, db } from '../lib/firebase/client';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
+import { Loader2, Save, Plus, Trash2 } from 'lucide-react';
+import { AI_CONFIG as STATIC_AI_CONFIG } from '../constants/aiConfig';
 
 export default function AdminDashboard() {
   const [serverStatus, setServerStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  
+  const [mainPrompt, setMainPrompt] = useState(STATIC_AI_CONFIG.mainPrompt);
+  const [techInst, setTechInst] = useState<string[]>(STATIC_AI_CONFIG.technicalPrompts);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([]);
   
   useEffect(() => {
      loadServerStatus();
+     loadConfig();
+     loadAuthorizedUsers();
   }, []);
+
+  const loadAuthorizedUsers = async () => {
+    try {
+        const docSnap = await getDoc(doc(db, 'config', 'whitelist'));
+        if (docSnap.exists()) {
+            setAuthorizedUsers(docSnap.data().emails || []);
+        }
+    } catch (e) {
+        console.error("Erro ao carregar whitelist");
+    }
+  };
+
+  const handleAddUser = async () => {
+    if (!newUserEmail || !newUserEmail.includes('@')) {
+        toast.error("Insira um email válido.");
+        return;
+    }
+    
+    if (authorizedUsers.includes(newUserEmail.toLowerCase())) {
+        toast.error("Este usuário já está autorizado.");
+        return;
+    }
+
+    const newList = [...authorizedUsers, newUserEmail.toLowerCase()];
+    try {
+        await setDoc(doc(db, 'config', 'whitelist'), {
+            emails: newList,
+            updated_at: serverTimestamp()
+        });
+        setAuthorizedUsers(newList);
+        setNewUserEmail('');
+        toast.success("Usuário autorizado com sucesso!");
+    } catch (e) {
+        toast.error("Erro ao autorizar usuário.");
+    }
+  };
+
+  const handleRemoveUser = async (email: string) => {
+    const newList = authorizedUsers.filter(e => e !== email);
+    try {
+        await setDoc(doc(db, 'config', 'whitelist'), {
+            emails: newList,
+            updated_at: serverTimestamp()
+        });
+        setAuthorizedUsers(newList);
+        toast.success("Autorização removida.");
+    } catch (e) {
+        toast.error("Erro ao remover autorização.");
+    }
+  };
 
   const loadServerStatus = async () => {
     try {
@@ -21,58 +86,189 @@ export default function AdminDashboard() {
     } catch(e) {}
   };
 
-  return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-slate-800">Painel de Gerenciamento</h2>
-        {serverStatus && (
-          <div className="flex gap-2">
-            {!serverStatus.hasOpenAIKey && (
-              <span className="bg-red-100 text-red-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-red-200">
-                ⚠️ OPENAI KEY AUSENTE
-              </span>
-            )}
-            {serverStatus.hasOpenAIKey && (
-              <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-emerald-100">
-                ✅ OpenAI Ativa
-              </span>
-            )}
+  const loadConfig = async () => {
+    setLoading(true);
+    try {
+        const docSnap = await getDoc(doc(db, 'config', 'settings'));
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            setMainPrompt(data.main_prompt || STATIC_AI_CONFIG.mainPrompt);
+            setTechInst(data.technical_instructions || STATIC_AI_CONFIG.technicalPrompts);
+        }
+    } catch (e) {
+        toast.error("Erro ao carregar configurações do Firebase.");
+    } finally {
+        setLoading(false);
+    }
+  };
 
-            {!serverStatus.hasFirebaseStorage ? (
-              <div className="flex gap-2">
-                {serverStatus.storageType === 'R2' ? (
-                  <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-amber-200">
-                    ⚠️ R2 FALHOU
-                  </span>
-                ) : (
-                  <a 
-                    href={`https://console.firebase.google.com/project/${serverStatus.projectId}/storage`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-amber-100 text-amber-700 text-[10px] px-2 py-1 rounded-md font-bold border border-amber-200 hover:bg-amber-200 transition-colors"
-                  >
-                    ⚠️ STORAGE DESATIVADO
-                  </a>
-                )}
-              </div>
-            ) : (
-                <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-emerald-100">
-                    ✅ {serverStatus.storageType || 'Storage'} OK
-                </span>
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+        await setDoc(doc(db, 'config', 'settings'), {
+            main_prompt: mainPrompt,
+            technical_instructions: techInst,
+            updated_at: serverTimestamp()
+        });
+        toast.success("Configurações salvas com sucesso!");
+    } catch (e) {
+        toast.error("Erro ao salvar configurações.");
+    } finally {
+        setSaving(false);
+    }
+  };
+
+  const addTechInst = () => {
+    setTechInst([...techInst, ""]);
+  };
+
+  const updateTechInst = (index: number, value: string) => {
+    const newList = [...techInst];
+    newList[index] = value;
+    setTechInst(newList);
+  };
+
+  const removeTechInst = (index: number) => {
+    setTechInst(techInst.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Authorized Users Section */}
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+            👤 Usuários Autorizados
+        </h2>
+        <div className="flex gap-3 mb-6">
+            <div className="relative flex-1">
+                <input 
+                    type="email"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    placeholder="Email do novo colaborador..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 h-12 text-sm focus:ring-2 focus:ring-[var(--color-primary)] outline-none transition-all"
+                />
+            </div>
+            <Button 
+                onClick={handleAddUser}
+                className="bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white px-6 h-12 rounded-xl gap-2 font-bold whitespace-nowrap"
+            >
+                <Plus size={18} /> Autorizar Acesso
+            </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {authorizedUsers.map(email => (
+                <div key={email} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group">
+                    <span className="text-sm font-medium text-slate-600 truncate mr-2">{email}</span>
+                    {email !== 'celoolarnosol@gmail.com' && (
+                        <button 
+                            onClick={() => handleRemoveUser(email)}
+                            className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    )}
+                </div>
+            ))}
+            {authorizedUsers.length === 0 && (
+                <p className="col-span-full text-center text-slate-400 py-4 italic text-sm">Nenhum usuário adicional autorizado.</p>
             )}
-          </div>
-        )}
+        </div>
       </div>
 
-      <div className="bg-slate-50 border border-slate-100 p-8 rounded-2xl text-center">
-        <div className="bg-white w-16 h-16 rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-4 text-[var(--color-primary)]">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-slate-800">Status do Sistema</h2>
+          {serverStatus && (
+            <div className="flex gap-2">
+              {!serverStatus.hasOpenAIKey && (
+                <span className="bg-red-100 text-red-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-red-200">
+                  ⚠️ OPENAI KEY AUSENTE
+                </span>
+              )}
+              {serverStatus.hasOpenAIKey && (
+                <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-emerald-100">
+                  ✅ OpenAI Ativa
+                </span>
+              )}
+              <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-blue-100">
+                  ✅ Firebase DB OK
+              </span>
+              <span className="bg-slate-50 text-slate-500 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-slate-100 italic">
+                  ℹ️ Storage Opcional
+              </span>
+            </div>
+          )}
         </div>
-        <h3 className="text-lg font-bold text-slate-800 mb-2">Configurações Estáticas Ativas</h3>
-        <p className="text-slate-500 text-sm max-w-md mx-auto">
-          As instruções da IA e o banco de dados de conhecimento estão agora integrados diretamente ao núcleo do aplicativo para garantir consistência e performance.
+        
+        <p className="text-slate-500 text-sm mb-4">
+          Gerencie as instruções principais da IA que orientam a criação do roteiro e do encarte.
         </p>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border p-6 space-y-8">
+        <div>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            Prompt Principal (Brain)
+          </h3>
+          <Textarea 
+            value={mainPrompt}
+            onChange={(e) => setMainPrompt(e.target.value)}
+            className="min-h-[300px] font-mono text-sm leading-relaxed"
+            placeholder="Insira o prompt principal aqui..."
+          />
+        </div>
+
+        <div>
+           <div className="flex items-center justify-between mb-4">
+             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+               Instruções Técnicas Secundárias
+             </h3>
+             <Button onClick={addTechInst} variant="outline" size="sm" className="gap-2">
+                <Plus size={14} /> Adicionar
+             </Button>
+           </div>
+           
+           <div className="space-y-3">
+             {techInst.map((item, index) => (
+                <div key={index} className="flex gap-2">
+                  <Textarea 
+                    value={item}
+                    onChange={(e) => updateTechInst(index, e.target.value)}
+                    className="min-h-[80px] text-sm"
+                    placeholder={`Instrução #${index + 1}`}
+                  />
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => removeTechInst(index)}
+                    className="text-slate-400 hover:text-red-500 shrink-0"
+                  >
+                    <Trash2 size={18} />
+                  </Button>
+                </div>
+             ))}
+             {techInst.length === 0 && (
+               <p className="text-center text-slate-400 py-4 border-2 border-dashed rounded-xl text-sm italic">
+                  Nenhuma instrução técnica secundária definida.
+               </p>
+             )}
+           </div>
+        </div>
+
+        <div className="pt-4 border-t flex justify-end">
+           <Button 
+             onClick={handleSave} 
+             disabled={saving || loading}
+             className="bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white px-8 h-12 rounded-xl gap-2 font-bold"
+           >
+             {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+             Salvar Configurações
+           </Button>
+        </div>
       </div>
     </div>
   );
 }
+

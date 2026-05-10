@@ -10,53 +10,19 @@
         "display_name": { "type": "string" },
         "photo_url": { "type": "string" },
         "role": { "type": "string", "enum": ["user", "admin"] },
-        "bio": { "type": "string" },
-        "location": { "type": "string" },
+        "image_count": { "type": "integer" },
+        "max_images": { "type": "integer" },
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "email"]
     },
-    "Chat": {
-      "title": "Chat Session",
-      "description": "A chat conversation thread",
+    "AppConfig": {
+      "title": "Application Configuration",
+      "description": "Global settings for the application including prompts",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "description": "Chat UUID" },
-        "user_id": { "type": "string", "description": "Owner UID" },
-        "title": { "type": "string" },
-        "message_count": { "type": "integer" },
-        "is_archived": { "type": "boolean" },
-        "last_message": { "type": "string" },
-        "updated_at": { "type": "string", "format": "date-time" }
-      },
-      "required": ["user_id"]
-    },
-    "Message": {
-      "title": "Chat Message",
-      "description": "Individual message in a chat",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string", "description": "Message UUID" },
-        "chat_id": { "type": "string" },
-        "user_id": { "type": "string" },
-        "role": { "type": "string", "enum": ["user", "assistant"] },
-        "content": { "type": "string" },
-        "image_urls": { "type": "array", "items": { "type": "string" } },
-        "created_at": { "type": "string", "format": "date-time" }
-      },
-      "required": ["chat_id", "user_id", "role", "content"]
-    },
-    "AdminConfig": {
-      "title": "Admin Configuration",
-      "description": "Global settings for the application",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "system_prompt": { "type": "string" },
-        "model": { "type": "string" },
-        "image_model": { "type": "string" },
-        "temperature": { "type": "number" },
-        "max_tokens": { "type": "integer" },
+        "main_prompt": { "type": "string" },
+        "technical_instructions": { "type": "array", "items": { "type": "string" } },
         "updated_at": { "type": "string", "format": "date-time" }
       }
     }
@@ -66,17 +32,9 @@
       "schema": "Profile",
       "description": "User profiles"
     },
-    "/chats/{chatId}": {
-      "schema": "Chat",
-      "description": "Chat sessions"
-    },
-    "/chats/{chatId}/messages/{messageId}": {
-      "schema": "Message",
-      "description": "Messages within a chat"
-    },
-    "/admin_config/settings": {
-      "schema": "AdminConfig",
-      "description": "System configuration"
+    "/config/settings": {
+      "schema": "AppConfig",
+      "description": "System configuration with prompts"
     }
   }
 }

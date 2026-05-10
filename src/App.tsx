@@ -24,6 +24,19 @@ export default function App() {
           const adminEmail = 'celoolarnosol@gmail.com';
           const isAdmin = firebaseUser.email?.toLowerCase() === adminEmail.toLowerCase();
           
+          // Whitelist check
+          if (!isAdmin) {
+              const whitelistSnap = await getDoc(doc(db, 'config', 'whitelist'));
+              const authorizedEmails = whitelistSnap.exists() ? (whitelistSnap.data().emails || []) : [];
+              if (!authorizedEmails.map((e: string) => e.toLowerCase()).includes(firebaseUser.email?.toLowerCase())) {
+                  await auth.signOut();
+                  toast.error('Seu acesso foi revogado ou não está autorizado.');
+                  setUserData(null);
+                  setLoading(false);
+                  return;
+              }
+          }
+
           // Initial profile data
           const initialData = {
             id: firebaseUser.uid,
