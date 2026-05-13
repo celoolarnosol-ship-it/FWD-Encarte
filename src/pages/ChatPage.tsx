@@ -108,8 +108,8 @@ export default function ChatPage() {
                     img.src = event.target?.result as string;
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        const MAX_WIDTH = 1024;
-                        const MAX_HEIGHT = 1024;
+                        const MAX_WIDTH = 800;
+                        const MAX_HEIGHT = 800;
                         let width = img.width;
                         let height = img.height;
 
@@ -129,7 +129,7 @@ export default function ChatPage() {
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx?.drawImage(img, 0, 0, width, height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.8));
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
                     };
                     img.onerror = reject;
                 };
@@ -144,12 +144,16 @@ export default function ChatPage() {
                 
                 // If this is the current active message, use the actual Files to get resized base64
                 if (msg.id === userMsgId && currentImages.length > 0) {
-                    for (const file of currentImages) {
-                        try {
-                            const base64 = await processImage(file);
+                    const base64Promises = currentImages.map(file => processImage(file).catch(e => {
+                        console.error("Image processing failed", e);
+                        return null;
+                    }));
+                    
+                    const base64Results = await Promise.all(base64Promises);
+                    
+                    for (const base64 of base64Results) {
+                        if (base64) {
                             contentArr.push({ type: "image_url", image_url: { url: base64, detail: "auto" } });
-                        } catch (e) {
-                            console.error("Image processing failed", e);
                         }
                     }
                 }
@@ -303,7 +307,7 @@ export default function ChatPage() {
             </div>
             <h2 className="text-2xl font-semibold mb-4 text-[#1A1A2E]">EncartIA</h2>
             <div className="bg-white p-6 rounded-2xl shadow-sm space-y-4 max-w-md mx-auto text-left">
-              <p className="text-[#1A1A2E] font-medium text-center">Escolha o formato acima e descreva seu encarte.</p>
+              <p className="text-[#1A1A2E] font-medium text-center">Escolha o formato acima e descreva seu encarte. <br/><span className="text-xs text-slate-500">(Você pode enviar até 10 fotos de produtos)</span></p>
               <div>
                 <p className="text-sm font-semibold text-[#6B7280] uppercase tracking-wider mb-2">Sugestões:</p>
                 <ul className="text-sm text-[#1A1A2E] space-y-1 list-disc pl-4 opacity-80">
@@ -332,7 +336,7 @@ export default function ChatPage() {
                       </div>
                   )}
                   <div className="markdown-body text-sm leading-relaxed prose prose-sm max-w-none">
-                    <Markdown>{msg.content}</Markdown>
+                    <Markdown>{typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}</Markdown>
                   </div>
                   {msg.generatedImageUrls?.length > 0 && (
                       <div className="mt-4 bg-slate-50 border border-slate-100 p-2 rounded-2xl shadow-lg inline-block relative group">
@@ -403,7 +407,7 @@ export default function ChatPage() {
                       multiple 
                       onChange={(e) => {
                         if (e.target.files) {
-                          const newImages = Array.from(e.target.files).slice(0, 4 - images.length);
+                          const newImages = Array.from(e.target.files).slice(0, 10 - images.length);
                           setImages([...images, ...newImages]);
                         }
                         e.target.value = '';
@@ -443,7 +447,7 @@ export default function ChatPage() {
             </>
           )}
         </div>
-        <p className="text-center text-[10px] text-slate-400 mt-3 uppercase tracking-widest font-bold">Impulsionado por GPT-4o Vision & DALL-E 3</p>
+        <p className="text-center text-[10px] text-slate-400 mt-3 uppercase tracking-widest font-bold">Impulsionado por Genspark GPT-5.5 & GPT-IMAGE-2</p>
       </div>
     </div>
   );

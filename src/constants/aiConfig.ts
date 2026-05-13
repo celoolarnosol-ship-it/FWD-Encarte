@@ -121,14 +121,14 @@ texto final é aplicado em editor gráfico.
     "CONCEITOS FUNDAMENTAIS: Estética (estudo da beleza e emoções), Artes Visuais (engloba pintura, escultura, design, etc) e Arte Pós-Moderna (uso de novas tecnologias e diversidade).",
     "TÉCNICAS DE PINTURA E DESENHO: Guache/Acrílica (tintas opacas e versáteis), Pintura a Óleo (rica em cores, secagem lenta), Aquarela (transparente e fluida), Hachura/Pontilhismo (uso de linhas e pontos para volume) e Esfuminho (ferramenta para suavizar traços).",
     "TEXTURES E EFEITOS VISUAIS: Textura Tátil (superfície física), Textura Visual (ilusão de textura), Claro-Escuro/Chiaroscuro (contraste dramático para profundidade), Degradês/Gradientes (transição suave de cores) e Efeitos Visuais/VFX (filtros, desfoques e distorção em pós-produção).",
-    "PLATAFORMAS E MODELOS DE IA: Midjourney (Arte estética e controle de estilo), DALL-E 3 (Excelente compreensão de prompts complexos), Stable Diffusion (Versatilidade e código aberto), Adobe Firefly (Foco profissional e comercial), Leonardo AI (Geração para jogos e criativos) e Canva (Design gráfico integrado).",
-    "CONCEITOS CHAVE EM GERAÇÃO POR IA: Prompt Engineering (Habilidade de escrita eficaz: Assunto + Estilo + Detalhes + Efeitos Visuais) e Modelos Generativos (Arquitetura de modelos de difusão que simulam praticamente qualquer estilo artístico).",
+    "PLATAFORMAS E MODELOS DE IA: Genspark (Eficiência e IA generativa de ponta), Flux (Realismo e precisão de texto), Adobe Firefly (Foco profissional e comercial) e Canva (Design gráfico integrado).",
+    "CONCEITOS CHAVE EM GERAÇÃO POR IA: Prompt Engineering (Habilidade de escrita eficaz: Assunto + Estilo + Detalhes + Efeitos Visuais) e Modelos Generativos (Arquitetura de modelos que simulam praticamente qualquer estilo artístico).",
     "REALISMO DE PELE HUMANA: Diversidade de tons baseada em Eumelanina/Feomelanina. Uso de Subsurface Scattering (SSS) profundo para peles pretas e alto alcance para albinas. Condições como Vitiligo (bordas nítidas), Melasmas e Efélides (dirt maps). Micro-detalhes como Pelos Velos (Peach Fuzz) gerando Asperity Scattering/Rim Light, e Pelos Terminais (barba/cílios) com oclusão ambiental (AO) na raiz. Escalas Monk Skin Tone (MST) e Fitzpatrick para precisão tonal.",
     "CINEMATOGRAFIA E SENSORES: Ecossistema de captura high-end incluindo ARRI (Alexa 35 ALEV 4 con 17 stops), RED (V-RAPTOR [X] Global Shutter 8K), Sony CineAlta (Venice 2 8.6K), Phase One (IQ4 150MP) e Hasselblad (X2D 100MP). Câmeras Mirrorless de elite como Sony A1, Canon R3 e Nikon Z9. Drones avançados como DJI Inspire 3 (X9-8K Air).",
     "ÓPTICAS E RENDERIZAÇÃO: Lentes de cinema lendárias como ARRI Signature Primes, Cooke Look (S7/i), Angénieux Optimo e Zeiss Supreme. Mestres da luz como Ansel Adams (Sistema de Zonas), Annie Leibovitz e Sebastião Salgado. Softwares de ponta: DaVinci Resolve (color grading), Unreal Engine 5 (Nanite/Lumen), e motores de render como Octane (unbiased), Redshift e V-Ray (fotorrealismo clássico)."
   ],
-  model: "gpt-4o",
-  imageModel: "dall-e-3",
+  model: "gpt-5.5",
+  imageModel: "gpt-image-2", 
   temperature: 0.7,
   maxTokens: 2500
 };

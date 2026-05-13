@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../lib/firebase/client';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase/client';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Loader2, Save, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Save, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { AI_CONFIG as STATIC_AI_CONFIG } from '../constants/aiConfig';
+import { useNavigate } from 'react-router-dom';
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [serverStatus, setServerStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,7 +32,8 @@ export default function AdminDashboard() {
             setAuthorizedUsers(docSnap.data().emails || []);
         }
     } catch (e) {
-        console.error("Erro ao carregar whitelist");
+        console.error("Erro ao carregar whitelist:", e);
+        handleFirestoreError(e, OperationType.GET, 'config/whitelist');
     }
   };
 
@@ -134,6 +137,21 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Header with Return Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Configurações do Admin</h1>
+          <p className="text-slate-500 text-sm">Gerencie o comportamento e os acessos do aplicativo.</p>
+        </div>
+        <Button 
+          onClick={() => navigate('/')} 
+          variant="outline" 
+          className="rounded-xl gap-2 border-slate-200 hover:bg-slate-50"
+        >
+          <ArrowLeft size={18} /> Voltar ao App
+        </Button>
+      </div>
+
       {/* Authorized Users Section */}
       <div className="bg-white rounded-xl shadow-sm border p-6">
         <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -182,19 +200,19 @@ export default function AdminDashboard() {
           <h2 className="text-xl font-bold text-slate-800">Status do Sistema</h2>
           {serverStatus && (
             <div className="flex gap-2">
-              {!serverStatus.hasOpenAIKey && (
+              {!serverStatus.hasGensparkKey && (
                 <span className="bg-red-100 text-red-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-red-200">
-                  ⚠️ OPENAI KEY AUSENTE
-                </span>
-              )}
-              {serverStatus.hasOpenAIKey && (
-                <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-emerald-100">
-                  ✅ OpenAI Ativa
+                  ⚠️ GSK KEY AUSENTE
                 </span>
               )}
               <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-blue-100">
                   ✅ Firebase DB OK
               </span>
+              {serverStatus.hasGensparkKey && (
+                <span className="bg-purple-50 text-purple-700 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-purple-100">
+                  ✅ Genspark Ativo
+                </span>
+              )}
               <span className="bg-slate-50 text-slate-500 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border border-slate-100 italic">
                   ℹ️ Storage Opcional
               </span>

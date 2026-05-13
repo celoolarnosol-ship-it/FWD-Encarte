@@ -8,7 +8,12 @@ service cloud.firestore {
 
     // Phase 3: Primitive Definition
     function isSignedIn() { return request.auth != null; }
-    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin'; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin')
+        || (request.auth.token.email == 'celoolarnosol@gmail.com' && request.auth.token.email_verified == true)
+      ); 
+    }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }

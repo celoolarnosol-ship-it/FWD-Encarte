@@ -11,7 +11,7 @@ import ChatLayout from './pages/ChatLayout';
 import ChatPage from './pages/ChatPage';
 import AdminLayout from './pages/AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
-import { Toaster } from '@/components/ui/sonner';
+import { Toaster, toast } from 'sonner';
 
 export default function App() {
   const { user, userData, loading, setUser, setUserData, setLoading } = useAuthStore();

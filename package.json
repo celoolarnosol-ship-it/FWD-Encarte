@@ -19,6 +19,7 @@
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@firebase/storage": "^0.14.2",
     "@fontsource-variable/geist": "^5.2.8",
+    "@genspark/cli": "^1.0.15",
     "@google/genai": "^1.29.0",
     "@radix-ui/react-icons": "^1.3.2",
     "@radix-ui/react-slot": "^1.2.4",
