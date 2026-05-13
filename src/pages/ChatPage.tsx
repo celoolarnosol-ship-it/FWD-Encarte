@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Paperclip, Send, Loader2, RefreshCw, Square, Monitor, Smartphone } from 'lucide-react';
+import { Paperclip, Send, Loader2, RefreshCw, Square, Monitor, Smartphone, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuthStore } from '../stores/authStore';
@@ -339,13 +339,30 @@ export default function ChatPage() {
                     <Markdown>{typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}</Markdown>
                   </div>
                   {msg.generatedImageUrls?.length > 0 && (
-                      <div className="mt-4 bg-slate-50 border border-slate-100 p-2 rounded-2xl shadow-lg inline-block relative group">
-                          {msg.generatedImageUrls.map((url: string, i: number) => (
-                              <img key={i} src={url} alt="encarte gerado" className="max-w-full md:max-w-md rounded-xl shadow-sm" />
-                          ))}
-                          <div className="mt-3 flex justify-end items-center px-2 pb-1">
-                             <a href={msg.generatedImageUrls[0]} target="_blank" rel="noopener noreferrer" className="bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm inline-flex">Download High-Res</a>
+                      <div className="mt-4 bg-indigo-50 border border-indigo-100 p-4 rounded-2xl shadow-sm inline-block w-full max-w-sm">
+                          <div className="flex items-center gap-3 mb-4">
+                             <div className="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-md">
+                                <Square size={20} className="fill-white" />
+                             </div>
+                             <div>
+                                <p className="font-bold text-indigo-900 text-sm">Encarte Pronto!</p>
+                                <p className="text-xs text-indigo-700">Versão final em alta definição (2K)</p>
+                             </div>
                           </div>
+                          
+                          <div className="flex flex-col gap-2">
+                             <a 
+                                href={msg.generatedImageUrls[0]} 
+                                download={`encarte-${Date.now()}.png`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl text-sm font-bold transition-all text-center shadow-md flex items-center justify-center gap-2"
+                             >
+                                <Download size={18} />
+                                Baixar Encarte em Alta Definição (2K)
+                             </a>
+                          </div>
+                          <p className="mt-3 text-[10px] text-center text-indigo-400 font-medium italic">A imagem não é exibida no chat para garantir rapidez. Use os botões acima.</p>
                       </div>
                   )}
                 </div>

@@ -1,7 +1,44 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { adminAuth, adminDb, projectId } from "./src/lib/firebase/admin.js";
+import { adminAuth, adminDb, defaultDb, projectId, databaseId } from "./src/lib/firebase/admin.js";
+import { AI_CONFIG as DEFAULT_AI_CONFIG } from "./src/constants/aiConfig.js";
+
+async function getAIConfig() {
+  const fetchFromDb = async (db: any, dbName: string) => {
+    try {
+      console.log(`Attempting to fetch AI config from Firestore (${dbName})...`);
+      const docSnap = await db.collection('config').doc('settings').get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        console.log(`AI config fetched successfully from ${dbName}.`);
+        return {
+          mainPrompt: data?.main_prompt || DEFAULT_AI_CONFIG.mainPrompt,
+          techPrompts: data?.technical_instructions || DEFAULT_AI_CONFIG.technicalPrompts
+        };
+      }
+      return null;
+    } catch (e: any) {
+      console.error(`Error fetching from ${dbName}:`, e.message);
+      return null;
+    }
+  };
+
+  // Try the specific database first
+  const result = await fetchFromDb(adminDb, databaseId || 'default');
+  if (result) return result;
+
+  // Try the default database if different
+  if (databaseId && databaseId !== '(default)') {
+    const defaultResult = await fetchFromDb(defaultDb, '(default)');
+    if (defaultResult) return defaultResult;
+  }
+
+  return {
+    mainPrompt: DEFAULT_AI_CONFIG.mainPrompt,
+    techPrompts: DEFAULT_AI_CONFIG.technicalPrompts
+  };
+}
 
 async function startServer() {
   const app = express();
@@ -42,70 +79,9 @@ async function startServer() {
       
       const { messages, config, aspect_ratio } = req.body;
       
-      const SYSTEM_PROMPT_ANALYST = `
-Você é o ENCARTE.AI — um agente especialista em marketing visual para 
-pequenos negócios brasileiros. Sua função é transformar pedidos informais 
-de comerciantes em briefings profissionais de design para encartes promocionais.
-
-## SOBRE QUEM VOCÊ ATENDE
-Seus usuários são donos de pequenos negócios: padarias, mercadinhos, açougues, 
-salões de beleza, pet shops, restaurantes, lojas de roupas de bairro, oficinas, 
-farmácias, papelarias, lanchonetes, pizzarias, sorveterias, floriculturas e 
-similares. Eles geralmente:
-- Não têm experiência com design ou marketing
-- Falam de forma informal, com gírias e abreviações
-- Precisam de resultados rápidos e práticos
-- Querem algo que "chame atenção" e "venda"
-- Têm orçamento limitado e não podem contratar designer
-
-## SUAS RESPONSABILIDADES NESTE FLUXO
-1. INTERPRETAR o pedido do usuário, por mais vago que seja
-2. PERGUNTAR o que faltar (mas nunca mais que 2-3 perguntas por vez)
-3. ESTRUTURAR um briefing completo com: tipo de negócio, produtos, preços, 
-   cores da marca, tom de voz, público-alvo, sugestão de layout e textos (copy)
-4. GERAR um prompt visual otimizado EM INGLÊS para o modelo de geração de imagem
-
-## REGRAS DE COPY PARA ENCARTES
-- Headlines devem ser CURTAS (máx 5 palavras), IMPACTANTES e em PORTUGUÊS
-- Preços devem estar SEMPRE em destaque (fonte grande)
-- Incluir CTA claro: "Corra!", "Só hoje!", "Aproveite!", "Não perca!"
-- Rodapé com endereço e telefone/WhatsApp do estabelecimento
-- NUNCA usar linguagem rebuscada — fale a língua do cliente do bairro
-- Texto deve ser LEGÍVEL mesmo em tela de celular pequena
-
-## REGRAS PARA O PROMPT VISUAL (IMAGE PROMPT)
-O prompt que você gerar para a imagem DEVE:
-- Ser escrito inteiramente em INGLÊS (melhor performance do modelo de imagem)
-- Especificar ESTILO: "professional promotional flyer", "retail sale poster"
-- Especificar LAYOUT: posição de textos, área de produtos, margens
-- Especificar CORES: usar valores hex ou nomes precisos de cor
-- Especificar TIPOGRAFIA: "bold sans-serif headline", "large price tags"
-- Especificar ELEMENTOS: fotos de produtos, ícones de desconto, bordas
-- Incluir TODO texto que deve aparecer na imagem (headline, preços, CTA, 
-  endereço) — escrito EXATAMENTE como deve ser renderizado
-- Mencionar "Brazilian Portuguese text" para garantir acentuação correta
-- Pedir "clean composition, high contrast, easy to read on mobile screen"
-- NÃO exceder 500 palavras no prompt
-
-## RESTRIÇÕES ABSOLUTAS DE IMAGEM (NÃO NEGOCIÁVEIS)
-Ao gerar o campo "image_prompt" e "suggested_size" e "suggested_quality", 
-você DEVE respeitar estas restrições sem exceção:
-1. O campo "suggested_quality" SEMPRE deve ser "medium". 
-2. O campo "suggested_size" NUNCA pode ter nenhuma aresta acima de 2048px. 
-3. No prompt visual (image_prompt), NUNCA inclua "4K", "8K" ou "HD". 
-4. SEMPRE inclua: "Output specifications: medium quality, sharp and clean rendering, optimized for mobile screen viewing."
-
-## FORMATO DE SAÍDA OBRIGATÓRIO (JSON VÁLIDO)
-Exemplo:
-{
-  "business_type": "...",
-  "copy": { "headline": "...", "subheadline": "...", "cta": "...", "footer": "..." },
-  "image_prompt": "...",
-  "suggested_size": "1024x1536",
-  "suggested_quality": "medium"
-}
-`;
-
+      const aiSettings = await getAIConfig();
+      const SYSTEM_PROMPT_ANALYST = `${aiSettings.mainPrompt}\n\nTECHNICAL SKILLS & REFERENCES:\n${aiSettings.techPrompts.join('\n')}\n\n## ENFORCEMENT: USE USER DATA AND IMAGES\nYou MUST extract and use every product, price, and business detail provided in the images or text. THE GENERATED IMAGE PROMPT MUST BE A DIRECT REFLECTION OF THE USER'S PRODUCTS.`;
+      
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -141,16 +117,38 @@ Exemplo:
               },
               body: JSON.stringify({
                 image_urls: imageUrls,
-                instruction: `${SYSTEM_PROMPT_ANALYST}\n\nUSER REQUEST: "${latestUserMessage}"`
+                instruction: `STRICT TASK: Extract ALL business info, product names, brands, and prices from the attached images.
+THEN, create a professional design briefing following these SYSTEM RULES:
+${SYSTEM_PROMPT_ANALYST}
+
+USER REQUEST: "${latestUserMessage}"
+IMPORTANT: Your output MUST be ONLY the JSON specified. The "image_prompt" field MUST describe the products from the images in high detail so they can be recreated accurately.`
               })
             });
 
-            if (understandRes.ok) {
+             if (understandRes.ok) {
               const understandData: any = await understandRes.json();
               const rawAiText = understandData.data || understandData.result || understandData;
               aiText = typeof rawAiText === 'string' ? rawAiText : JSON.stringify(rawAiText);
+              
+              // Clean up aiText for the chat UI - try to extract a friendly summary
+              let chatFriendlyText = "Analisei suas imagens e estou criando seu encarte...";
+              try {
+                const parsed = typeof rawAiText === 'string' ? JSON.parse(rawAiText) : rawAiText;
+                if (parsed.copy && parsed.copy.headline) {
+                   chatFriendlyText = `Criando encarte: "${parsed.copy.headline}" para seu negócio de ${parsed.business_type || 'comércio'}.`;
+                } else if (parsed.image_prompt) {
+                   chatFriendlyText = "Estou processando o design com base nas referências enviadas...";
+                }
+              } catch (e) {
+                // If it's not JSON or parsing fails, use the first 200 chars if it's a string
+                if (typeof rawAiText === 'string' && rawAiText.length > 5 && !rawAiText.startsWith('{')) {
+                   chatFriendlyText = rawAiText.substring(0, 300);
+                }
+              }
+
               // Send text to client
-              res.write(`data: ${JSON.stringify({ type: 'text', content: aiText })}\n\n`);
+              res.write(`data: ${JSON.stringify({ type: 'text', content: chatFriendlyText })}\n\n`);
             } else {
               throw new Error(`Understand Images API failed: ${await understandRes.text()}`);
             }
@@ -175,7 +173,17 @@ Exemplo:
               const superAgentData: any = await superAgentRes.json();
               const rawAiText = superAgentData.data || superAgentData.result || superAgentData;
               aiText = typeof rawAiText === 'string' ? rawAiText : JSON.stringify(rawAiText);
-              res.write(`data: ${JSON.stringify({ type: 'text', content: aiText })}\n\n`);
+
+              // Clean up for chat
+              let chatFriendlyText = aiText;
+              try {
+                if (aiText.startsWith('{')) {
+                  const parsed = JSON.parse(aiText);
+                  chatFriendlyText = `Preparando o encarte "${parsed.copy?.headline || 'Promocional'}"...`;
+                }
+              } catch(e){}
+
+              res.write(`data: ${JSON.stringify({ type: 'text', content: chatFriendlyText })}\n\n`);
             } else {
               throw new Error(`Super Agent API failed: ${await superAgentRes.text()}`);
             }
@@ -213,27 +221,43 @@ Exemplo:
 
           if (finalImagePrompt.length > 1500) finalImagePrompt = finalImagePrompt.substring(0, 1500);
 
-          const imagePrompt = `FOLLOW THIS DETAILED SCRIPT TO CREATE A PROFESSIONAL FLYER (MEDIUM QUALITY, 2K MAX, BRAZILIAN PORTUGUESE TEXT):\n\n${finalImagePrompt}\n\nStyle: Modern retail promotional flyer. Aspect Ratio: ${aspect_ratio || '1:1'}. Clear hierarchy, professional studio lighting, realistic products. ALL TEXT MUST BE IN BRAZILIAN PORTUGUESE. Output specifications: medium quality, sharp and clean rendering, optimized for mobile screen viewing.`;
+          const imagePrompt = `CREATE A HIGH-DEFINITION 2K PROFESSIONAL FLYER. 
+STRICTLY FOLLOW THIS DESIGN SCRIPT:
+${finalImagePrompt}
+
+TECHNICAL SPECIFICATIONS:
+- Resolution: High Definition (2048x2048 or equivalent)
+- Style: Modern retail promotional flyer, vibrant colors, professional studio lighting.
+- REFERENCE PRODUCTS: If images were provided, recreate the EXACT products, brands, and items shown in the references.
+- Visual Language: Brazilian Portuguese text for all headings and price tags. Use "R$" for currency.
+- Resolution: 2K, sharp details, commercial grade.`;
+
+          const generationBody: any = {
+              query: imagePrompt,
+              model: "gpt-image-2",
+              aspect_ratio: aspect_ratio || "1:1",
+              quality: "high",
+              size: suggestedSize
+          };
+
+          // Try to pass reference images if the tool supports it (hidden/beta feature in some image models)
+          if (imageUrls.length > 0) {
+              generationBody.image_urls = imageUrls;
+          }
           
-          console.log(`Using Genspark GPT-IMAGE-2 with size ${suggestedSize} and quality medium...`);
+          console.log(`Using Genspark GPT-IMAGE-2 with size ${suggestedSize} and quality high-res...`);
           const gskRes = await fetch("https://www.genspark.ai/api/tool_cli/image_generation", {
               method: "POST",
               headers: {
                   "Content-Type": "application/json",
                   "X-Api-Key": gskApiKey
               },
-              body: JSON.stringify({
-                  query: imagePrompt,
-                  model: "gpt-image-2",
-                  aspect_ratio: aspect_ratio || "1:1",
-                  quality: "medium",
-                  size: suggestedSize
-              })
+              body: JSON.stringify(generationBody)
           });
           
+          let finalResult: any = null;
           if (gskRes.ok) {
               const text = await gskRes.text();
-              let finalResult: any = null;
               try {
                 // Try parsing entire body first (case for non-streaming or standard JSON)
                 finalResult = JSON.parse(text);
