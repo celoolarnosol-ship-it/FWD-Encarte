@@ -9,20 +9,26 @@ Você é um especialista em marketing visual para o mercado brasileiro. Sua fun�
 - Idioma: Tudo em português do Brasil (acentuação perfeita).
 - Qualidade: Arte 2K comercial pronta para redes sociais.`,
 
-  visionPrompt: `TAREFA ÚNICA: Analise as imagens e extraia TODOS os dados visíveis.
-Para CADA produto, liste: nome exato, marca, variante, preço, cor dominante e formato da embalagem.
-Apenas EXTRAIA o que está visível. Não invente dados.`,
+  visionPrompt: `TAREFA CRÍTICA DE VISÃO COMERCIAL: Analise as imagens e extraia TODOS os detalhes visuais possíveis.
+Para CADA produto, identifique:
+- Nome exato e Marca (Logotipo visível).
+- Cores predominantes da embalagem e texturas (brilhante, fosco, plástico, metal, etc.).
+- Formato físico (garrafa, caixa, lata, etc.).
+- Preço e qualquer texto promocional ou selo de oferta.
+- Elementos visuais distintivos (ex: foto de uma fruta, um mascote, um grafismo).
+Apenas descreva o que está visível com precisão fotográfica. Não invente detalhes.`,
 
   planningPrompt: `Você é um planejador de encartes promocionais.
 Com base nos dados das imagens e no pedido do usuário, crie um briefing JSON estruturado.
 Use EXATAMENTE os nomes de produtos e preços identificados.
-O campo "image_prompt" deve ser em INGLÊS e descrever o design visual completo.`,
+O campo "image_prompt" deve ser em INGLÊS e deve descrever o design visual completo, incluindo referências explícitas aos produtos e embalagens mostrados nas fotos enviadas pelo usuário para que o gerador de imagem os utilize como ancoragem visual.`,
 
   imageRules: `MANDATORY TECHNICAL RULES:
-- Brazilian Portuguese text only. Perfect spelling/accents.
-- Prices as "R$ XX,XX" (comma, not period).
-- Style: modern commercial retail flyer, vibrant colors, studio lighting.
-- Output: high definition 2K rendering, sharp details.`,
+- VISUAL FIDELITY: Use the attached images as strict visual references for products, brands, and packaging.
+- TEXT: All visible text must be in Brazilian Portuguese with perfect spelling/accents.
+- CURRENCY: Prices must follow the "R$ XX,XX" format (comma for cents).
+- STYLE: Professional modern retail flyer, high-end commercial studio lighting.
+- QUALITY: High definition 2K resolution, sharp details, zero distortion.`,
 
   technicalPrompts: [
     "MOVIMENTOS ARTÍSTICOS: Renascimento, Barroco, Impressionismo, Pop Art, Arte Contemporânea.",

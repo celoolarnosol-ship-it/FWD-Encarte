@@ -241,6 +241,7 @@ Retorne APENAS o JSON solicitado.`;
             } else if (url.startsWith('data:image')) {
               try {
                 const publicUrl = await uploadBase64ToR2(url, `${Date.now()}_${i}.jpg`);
+                console.log(`Uploaded ref image ${i} to: ${publicUrl}`);
                 publicImageUrls.push(publicUrl);
               } catch (e) {
                 console.error("Failed to upload reference image:", e);
@@ -251,7 +252,15 @@ Retorne APENAS o JSON solicitado.`;
           let finalImagePrompt = briefingJson?.image_prompt || aiText || latestUserMessage;
           if (finalImagePrompt.length > 1200) finalImagePrompt = finalImagePrompt.substring(0, 1200);
 
-          const imagePrompt = `${finalImagePrompt}\n\n${DEFAULT_AI_CONFIG.imageRules}\nColor palette suggestions: ${briefingJson?.colors?.join(', ') || 'Vibrant retail colors'}`;
+          const imagePrompt = `STRICT VISUAL REFERENCE TASK: Use the attached image_urls as the ONLY visual source for products and brands. 
+
+CONTENT TO REPLICATE:
+${finalImagePrompt}
+
+${DEFAULT_AI_CONFIG.imageRules}
+Color palette suggestions: ${briefingJson?.colors?.join(', ') || 'Vibrant retail colors'}
+
+Note: The reference images are uploaded as public URLs for your direct reference. Match the packaging and logos exactly.`;
 
           const suggestedSize = aspect_ratio === "9:16" ? "1152x2048" : (aspect_ratio === "16:9" ? "2048x1152" : "1024x1024");
 
