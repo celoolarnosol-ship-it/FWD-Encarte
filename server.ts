@@ -1,7 +1,10 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { adminAuth, adminDb, defaultDb, projectId, databaseId } from "./src/lib/firebase/admin.js";
+import { s3Client, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } from "./src/lib/cloudflare/r2.js";
 import { AI_CONFIG as DEFAULT_AI_CONFIG } from "./src/constants/aiConfig.js";
 
 async function getAIConfig() {
@@ -36,8 +39,27 @@ async function getAIConfig() {
 
   return {
     mainPrompt: DEFAULT_AI_CONFIG.mainPrompt,
-    techPrompts: DEFAULT_AI_CONFIG.technicalPrompts
+    technicalPrompts: DEFAULT_AI_CONFIG.technicalPrompts || []
   };
+}
+
+async function uploadBase64ToR2(base64Data: string, filename: string): Promise<string> {
+  if (!s3Client || !R2_BUCKET_NAME) {
+    throw new Error("R2 storage not configured");
+  }
+
+  // Remove header from base64
+  const base64Clean = base64Data.replace(/^data:image\/\w+;base64,/, '');
+  const buffer = Buffer.from(base64Clean, 'base64');
+
+  await s3Client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: `refs/${filename}`,
+    Body: buffer,
+    ContentType: 'image/jpeg',
+  }));
+
+  return `${R2_PUBLIC_DOMAIN}/refs/${filename}`;
 }
 
 async function startServer() {
@@ -79,14 +101,17 @@ async function startServer() {
       
       const { messages, config, aspect_ratio } = req.body;
       
-      const aiSettings = await getAIConfig();
-      const SYSTEM_PROMPT_ANALYST = `${aiSettings.mainPrompt}\n\nTECHNICAL SKILLS & REFERENCES:\n${aiSettings.techPrompts.join('\n')}\n\n## ENFORCEMENT: USE USER DATA AND IMAGES\nYou MUST extract and use every product, price, and business detail provided in the images or text. THE GENERATED IMAGE PROMPT MUST BE A DIRECT REFLECTION OF THE USER'S PRODUCTS.`;
-      
+      const aiSettings: any = await getAIConfig();
+      const layoutInstructions = fs.existsSync('./instrucoes_encarte.txt') 
+        ? fs.readFileSync('./instrucoes_encarte.txt', 'utf-8') 
+        : "";
+
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       
       let aiText = "";
+      let generatedImageUrl: string | undefined;
 
       // Extract images from messages if any (Vision)
       const imageUrls: string[] = [];
@@ -105,11 +130,17 @@ async function startServer() {
         }
       }
 
+      // =====================================================
+      // ESTÁGIO 1: VISÃO — Extrair dados concretos das imagens
+      // =====================================================
+      let extractedProductData = "";
+
       try {
           if (imageUrls.length > 0) {
-            // Using Genspark Understand Images for Vision
-            console.log("Using Genspark Understand Images for text generation with images...");
-            const understandRes = await fetch("https://www.genspark.ai/api/tool_cli/understand_images", {
+            res.write(`data: ${JSON.stringify({ type: 'status', content: 'analyzing_images' })}\n\n`);
+
+            console.log("Stage 1: Vision - Analyzing images...");
+            const visionRes = await fetch("https://www.genspark.ai/api/tool_cli/understand_images", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -117,143 +148,132 @@ async function startServer() {
               },
               body: JSON.stringify({
                 image_urls: imageUrls,
-                instruction: `STRICT TASK: Extract ALL business info, product names, brands, and prices from the attached images.
-THEN, create a professional design briefing following these SYSTEM RULES:
-${SYSTEM_PROMPT_ANALYST}
-
-USER REQUEST: "${latestUserMessage}"
-IMPORTANT: Your output MUST be ONLY the JSON specified. The "image_prompt" field MUST describe the products from the images in high detail so they can be recreated accurately.`
+                instruction: DEFAULT_AI_CONFIG.visionPrompt
               })
             });
 
-             if (understandRes.ok) {
-              const understandData: any = await understandRes.json();
-              const rawAiText = understandData.data || understandData.result || understandData;
-              aiText = typeof rawAiText === 'string' ? rawAiText : JSON.stringify(rawAiText);
-              
-              // Clean up aiText for the chat UI - try to extract a friendly summary
-              let chatFriendlyText = "Analisei suas imagens e estou criando seu encarte...";
-              try {
-                const parsed = typeof rawAiText === 'string' ? JSON.parse(rawAiText) : rawAiText;
-                if (parsed.copy && parsed.copy.headline) {
-                   chatFriendlyText = `Criando encarte: "${parsed.copy.headline}" para seu negócio de ${parsed.business_type || 'comércio'}.`;
-                } else if (parsed.image_prompt) {
-                   chatFriendlyText = "Estou processando o design com base nas referências enviadas...";
-                }
-              } catch (e) {
-                // If it's not JSON or parsing fails, use the first 200 chars if it's a string
-                if (typeof rawAiText === 'string' && rawAiText.length > 5 && !rawAiText.startsWith('{')) {
-                   chatFriendlyText = rawAiText.substring(0, 300);
-                }
+            if (visionRes.ok) {
+              const visionData: any = await visionRes.json();
+              extractedProductData = visionData.data || visionData.result || "";
+              if (typeof extractedProductData !== 'string') {
+                extractedProductData = JSON.stringify(extractedProductData);
               }
-
-              // Send text to client
-              res.write(`data: ${JSON.stringify({ type: 'text', content: chatFriendlyText })}\n\n`);
             } else {
-              throw new Error(`Understand Images API failed: ${await understandRes.text()}`);
+              console.error("Vision extraction failed:", await visionRes.text());
+              extractedProductData = "(Não foi possível analisar as imagens)";
             }
-          } else {
-            // Using Genspark Super Agent for general text
-            console.log("Using Genspark Super Agent for text generation...");
-            const superAgentRes = await fetch("https://www.genspark.ai/api/tool_cli/super_agent", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-Api-Key": gskApiKey
-              },
-              body: JSON.stringify({
-                task_type: "super_agent",
-                task_name: "Geração de Encarte",
-                query: latestUserMessage,
-                instructions: SYSTEM_PROMPT_ANALYST
-              })
-            });
+          }
 
-            if (superAgentRes.ok) {
-              const superAgentData: any = await superAgentRes.json();
-              const rawAiText = superAgentData.data || superAgentData.result || superAgentData;
-              aiText = typeof rawAiText === 'string' ? rawAiText : JSON.stringify(rawAiText);
+          // =====================================================
+          // ESTÁGIO 2: PLANEJAMENTO — Gerar briefing estruturado
+          // =====================================================
+          res.write(`data: ${JSON.stringify({ type: 'status', content: 'planning_design' })}\n\n`);
 
-              // Clean up for chat
-              let chatFriendlyText = aiText;
+          const planningPrompt = `${DEFAULT_AI_CONFIG.planningPrompt}
+
+DADOS EXTRAÍDOS DAS IMAGENS:
+${extractedProductData}
+
+PEDIDO DO USUÁRIO:
+"${latestUserMessage}"
+
+FORMATO SELECIONADO: ${aspect_ratio || '9:16'}
+
+REGRAS DE LAYOUT E ESTRUTURA:
+${layoutInstructions}
+
+REGRAS TÉCNICAS:
+${DEFAULT_AI_CONFIG.imageRules}
+
+Retorne APENAS o JSON solicitado.`;
+
+          const planningRes = await fetch("https://www.genspark.ai/api/tool_cli/super_agent", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Api-Key": gskApiKey
+            },
+            body: JSON.stringify({
+              task_type: "super_agent",
+              task_name: "Briefing de Encarte",
+              query: planningPrompt,
+              instructions: "Retorne APENAS JSON válido. Sem explicações, sem markdown."
+            })
+          });
+
+          let briefingJson: any = null;
+          if (planningRes.ok) {
+            const planData: any = await planningRes.json();
+            const rawText = planData.data || planData.result || "";
+            aiText = typeof rawText === 'string' ? rawText : JSON.stringify(rawText);
+
+            try {
+              const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                briefingJson = JSON.parse(jsonMatch[0]);
+              }
+            } catch (e) {
+              console.error("Failed to parse briefing JSON:", e);
+            }
+          }
+
+          // Send friendly text update
+          if (briefingJson) {
+            const headline = briefingJson.promotion_title || briefingJson.copy?.headline || "Encarte";
+            const products = briefingJson.products || [];
+            const summary = `Gerando encarte para **${headline}**.\n\nProdutos identificados:\n${products.map((p: any) => `• ${p.name}${p.price_to ? ` - ${p.price_to}` : ''}`).join('\n')}`;
+            res.write(`data: ${JSON.stringify({ type: 'text', content: summary })}\n\n`);
+          } else if (aiText) {
+            res.write(`data: ${JSON.stringify({ type: 'text', content: "Preparando o design do seu encarte..." })}\n\n`);
+          }
+
+          // =====================================================
+          // ESTÁGIO 3: GERAÇÃO VISUAL — Imagem com referências
+          // =====================================================
+          res.write(`data: ${JSON.stringify({ type: 'status', content: 'generating_image', aspect_ratio: aspect_ratio || '9:16' })}\n\n`);
+
+          // Upload reference images to get public URLs if needed
+          const publicImageUrls: string[] = [];
+          for (let i = 0; i < imageUrls.length; i++) {
+            const url = imageUrls[i];
+            if (url.startsWith('http')) {
+              publicImageUrls.push(url);
+            } else if (url.startsWith('data:image')) {
               try {
-                if (aiText.startsWith('{')) {
-                  const parsed = JSON.parse(aiText);
-                  chatFriendlyText = `Preparando o encarte "${parsed.copy?.headline || 'Promocional'}"...`;
-                }
-              } catch(e){}
-
-              res.write(`data: ${JSON.stringify({ type: 'text', content: chatFriendlyText })}\n\n`);
-            } else {
-              throw new Error(`Super Agent API failed: ${await superAgentRes.text()}`);
+                const publicUrl = await uploadBase64ToR2(url, `${Date.now()}_${i}.jpg`);
+                publicImageUrls.push(publicUrl);
+              } catch (e) {
+                console.error("Failed to upload reference image:", e);
+              }
             }
           }
-      } catch (err: any) {
-          console.error("Genspark text generation error", err);
-          res.write(`data: ${JSON.stringify({ type: 'error', message: `Erro na geração de texto: ${err.message}` })}\n\n`);
-          res.end();
-          return;
-      }
-      
-      // Generate Image
-      res.write(`data: ${JSON.stringify({ type: 'status', content: 'generating_image', aspect_ratio: aspect_ratio || '1:1' })}\n\n`);
-      
-      let generatedImageUrl: string | undefined;
-      
-      try {
-          // Parse AI text to see if it returned JSON briefing or just raw text
-          let finalImagePrompt = "";
-          let suggestedSize = aspect_ratio === "9:16" ? "1152x2048" : (aspect_ratio === "16:9" ? "2048x1152" : "1360x2048");
-          
-          try {
-            // Search for JSON block in aiText
-            const jsonMatch = aiText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              finalImagePrompt = parsed.image_prompt || aiText;
-              if (parsed.suggested_size) suggestedSize = parsed.suggested_size;
-            } else {
-              finalImagePrompt = aiText;
-            }
-          } catch (e) {
-            finalImagePrompt = aiText;
-          }
 
-          if (finalImagePrompt.length > 1500) finalImagePrompt = finalImagePrompt.substring(0, 1500);
+          let finalImagePrompt = briefingJson?.image_prompt || aiText || latestUserMessage;
+          if (finalImagePrompt.length > 1200) finalImagePrompt = finalImagePrompt.substring(0, 1200);
 
-          const imagePrompt = `CREATE A HIGH-DEFINITION 2K PROFESSIONAL FLYER. 
-STRICTLY FOLLOW THIS DESIGN SCRIPT:
-${finalImagePrompt}
+          const imagePrompt = `${finalImagePrompt}\n\n${DEFAULT_AI_CONFIG.imageRules}\nColor palette suggestions: ${briefingJson?.colors?.join(', ') || 'Vibrant retail colors'}`;
 
-TECHNICAL SPECIFICATIONS:
-- Resolution: High Definition (2048x2048 or equivalent)
-- Style: Modern retail promotional flyer, vibrant colors, professional studio lighting.
-- REFERENCE PRODUCTS: If images were provided, recreate the EXACT products, brands, and items shown in the references.
-- Visual Language: Brazilian Portuguese text for all headings and price tags. Use "R$" for currency.
-- Resolution: 2K, sharp details, commercial grade.`;
+          const suggestedSize = aspect_ratio === "9:16" ? "1152x2048" : (aspect_ratio === "16:9" ? "2048x1152" : "1024x1024");
 
+          console.log(`Stage 3: Generation - Prompting image generator with size ${suggestedSize}`);
           const generationBody: any = {
               query: imagePrompt,
               model: "gpt-image-2",
-              aspect_ratio: aspect_ratio || "1:1",
-              quality: "high",
+              aspect_ratio: aspect_ratio || "9:16",
+              quality: "medium",
               size: suggestedSize
           };
 
-          // Try to pass reference images if the tool supports it (hidden/beta feature in some image models)
-          if (imageUrls.length > 0) {
-              generationBody.image_urls = imageUrls;
+          if (publicImageUrls.length > 0) {
+              generationBody.image_urls = publicImageUrls;
           }
-          
-          console.log(`Using Genspark GPT-IMAGE-2 with size ${suggestedSize} and quality high-res...`);
+
           const gskRes = await fetch("https://www.genspark.ai/api/tool_cli/image_generation", {
               method: "POST",
-              headers: {
-                  "Content-Type": "application/json",
-                  "X-Api-Key": gskApiKey
-              },
+              headers: { "Content-Type": "application/json", "X-Api-Key": gskApiKey },
               body: JSON.stringify(generationBody)
           });
+
           
           let finalResult: any = null;
           if (gskRes.ok) {
