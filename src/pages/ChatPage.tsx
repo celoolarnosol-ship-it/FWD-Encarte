@@ -254,21 +254,8 @@ export default function ChatPage() {
     }
   };
 
-  const handleDownload = async (url: string) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `encarte-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
-    } catch (e) {
-      window.open(url, '_blank');
-    }
+  const handleViewLarge = (url: string) => {
+    window.open(url, '_blank');
   };
 
   return (
@@ -309,7 +296,7 @@ export default function ChatPage() {
             <div className="w-16 h-16 bg-[#EDE5FF] rounded-2xl flex items-center justify-center mx-auto mb-6">
               <span className="text-3xl">🎨</span>
             </div>
-            <h2 className="text-2xl font-semibold mb-4 text-[#1A1A2E]">EncartIA</h2>
+            <h2 className="text-2xl font-semibold mb-4 text-[#1A1A2E]">Dr. Encarte</h2>
             <div className="bg-white p-6 rounded-2xl shadow-sm space-y-4 max-w-md mx-auto text-left">
               <p className="text-[#1A1A2E] font-medium text-center">Escolha o formato acima e descreva seu encarte. <br/><span className="text-xs text-slate-500">(Você pode enviar até 10 fotos de produtos)</span></p>
               <div>
@@ -328,7 +315,7 @@ export default function ChatPage() {
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-4 shadow-sm ${msg.role === 'user' ? 'bg-[var(--color-primary)] text-white rounded-tr-none' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'}`}>
                   {msg.role === 'assistant' && (
-                     <p className="mb-2 font-medium text-[var(--color-primary)] text-sm">Assistente EncartIA</p>
+                     <p className="mb-2 font-medium text-[var(--color-primary)] text-sm">Assistente Dr. Encarte</p>
                   )}
                   {msg.imageUrls?.length > 0 && (
                       <div className="flex gap-2 flex-wrap mb-3">
@@ -354,23 +341,13 @@ export default function ChatPage() {
                              </div>
                           </div>
                           
-                          <div className="mb-4 rounded-xl overflow-hidden border border-indigo-200 shadow-sm bg-white">
-                              <img 
-                                src={msg.generatedImageUrls[0]} 
-                                alt="Encarte gerado" 
-                                className="w-full h-auto cursor-zoom-in"
-                                onClick={() => window.open(msg.generatedImageUrls[0], '_blank')}
-                                loading="lazy"
-                              />
-                          </div>
-                          
                           <div className="flex flex-col gap-2">
                              <Button 
-                                onClick={() => handleDownload(msg.generatedImageUrls[0])}
+                                onClick={() => handleViewLarge(msg.generatedImageUrls[0])}
                                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-6 rounded-xl text-sm font-bold transition-all text-center shadow-md flex items-center justify-center gap-2"
                              >
                                 <Download size={18} />
-                                Baixar em Alta Definição (2K)
+                                Visualizar em Alta Definição (2K)
                              </Button>
                           </div>
                       </div>

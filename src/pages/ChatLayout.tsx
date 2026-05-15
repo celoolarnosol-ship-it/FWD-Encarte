@@ -41,8 +41,8 @@ export default function ChatLayout() {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-[var(--color-primary)] rounded-lg flex items-center justify-center font-bold text-xl text-white">E</div>
-          <span className="text-xl font-bold tracking-tight">EncartIA</span>
+          <div className="w-8 h-8 bg-[var(--color-primary)] rounded-lg flex items-center justify-center font-bold text-xl text-white">D</div>
+          <span className="text-xl font-bold tracking-tight">Dr. Encarte</span>
         </div>
         
         <div className="px-4 mb-6">
@@ -108,7 +108,7 @@ export default function ChatLayout() {
                <Menu className="w-6 h-6" />
              </button>
              <h2 className="font-bold text-slate-800 truncate max-w-[200px] md:max-w-md">
-               EncartIA — Novo Encarte
+               Dr. Encarte — Novo Encarte
              </h2>
           </div>
           {userData?.role === 'admin' && (

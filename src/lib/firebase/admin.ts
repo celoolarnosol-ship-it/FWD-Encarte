@@ -42,18 +42,18 @@ if (config.firestoreDatabaseId && isDefaultId(databaseId)) {
 // Final fallback
 if (isDefaultId(databaseId)) databaseId = "(default)";
 
-console.log(`[Firebase Admin] DEBUG: process.env.GOOGLE_CLOUD_PROJECT = "${process.env.GOOGLE_CLOUD_PROJECT}"`);
-console.log(`[Firebase Admin] DEBUG: process.env.FIREBASE_PROJECT_ID = "${process.env.FIREBASE_PROJECT_ID}"`);
-console.log(`[Firebase Admin] Project ID: "${projectId || 'AUTO-DETECT'}", Database ID: "${databaseId}"`);
+console.log(`[Firebase Admin] DEBUG Environment: PROJECT="${process.env.GOOGLE_CLOUD_PROJECT || 'N/A'}", DB_ID="${process.env.FIRESTORE_DB_ID || 'N/A'}"`);
+console.log(`[Firebase Admin] Final Config: Project="${projectId || 'AUTO'}", Database="${databaseId}"`);
 
-// In Cloud Run / AI Studio, it's often better to NOT provide a projectId if we want to use ADC for the current project.
-// However, if we MUST use a specific one from config that might be different, we provide it.
+// Always prefer providing a projectId to ensure ADC targets the correct project,
+// especially in shared environments.
 const appOptions: any = {};
 if (projectId) {
     appOptions.projectId = projectId;
 }
 
-const app = getApps().find(a => a.name === 'admin-app') || initializeApp(appOptions, 'admin-app');
+// Use a unique name if multiple initializations occur, or use the default app
+const app = getApps().length > 0 ? getApp() : initializeApp(appOptions);
 
 export const adminAuth = getAuth(app);
 // Use the specific database if provided, otherwise default

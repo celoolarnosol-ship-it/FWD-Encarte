@@ -1,5 +1,5 @@
 {
-  "name": "EncartIA - Encarte Inteligente",
+  "name": "Dr. Encarte",
   "description": "Criação profissional de encartes de supermercado usando Inteligência Artificial. Envie suas fotos e gere arte em alta definição instantaneamente.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

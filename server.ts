@@ -15,46 +15,67 @@ let cachedConfig: any = null;
 let lastCacheUpdate = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
+const fetchFromDb = async (db: any, dbName: string, collection: string, docId: string) => {
+  try {
+    console.log(`[Firestore] Fetching ${collection}/${docId} from ${dbName}...`);
+    const docSnap = await db.collection(collection).doc(docId).get();
+    return docSnap;
+  } catch (e: any) {
+    console.error(`[Firestore] Error fetching from ${dbName} (${collection}/${docId}):`, e.message);
+    throw e;
+  }
+};
+
+const safeGet = async (collection: string, docId: string) => {
+  try {
+    return await fetchFromDb(adminDb, databaseId || 'default', collection, docId);
+  } catch (e: any) {
+    const isDbIssue = e.code === 5 || e.code === 7 || e.message.includes('NOT_FOUND') || e.message.includes('PERMISSION_DENIED');
+    if (isDbIssue && databaseId && databaseId !== '(default)') {
+      console.warn(`[Firestore] Database "${databaseId}" issue (Code ${e.code}). Falling back to (default).`);
+      try {
+        return await fetchFromDb(defaultDb, '(default)', collection, docId);
+      } catch (fallbackErr: any) {
+        console.error(`[Firestore] Fallback to (default) also failed:`, fallbackErr.message);
+        throw e; // throw original error
+      }
+    }
+    throw e;
+  }
+};
+
 async function getAIConfig() {
   if (cachedConfig && Date.now() - lastCacheUpdate < CACHE_TTL) {
     return cachedConfig;
   }
 
-  const fetchFromDb = async (db: any, dbName: string) => {
-    try {
-      console.log(`Attempting to fetch AI config from Firestore (${dbName})...`);
-      const docSnap = await db.collection('adminConfig').doc('settings').get();
-      if (docSnap.exists) {
-        const data = docSnap.data();
-        console.log(`AI config fetched successfully from ${dbName}.`);
-        return {
-          mainPrompt: data?.main_prompt || DEFAULT_AI_CONFIG.mainPrompt,
-          visionPrompt: data?.vision_prompt || DEFAULT_AI_CONFIG.visionPrompt,
-          planningPrompt: data?.planning_prompt || DEFAULT_AI_CONFIG.planningPrompt,
-          imageRules: data?.image_rules || DEFAULT_AI_CONFIG.imageRules,
-          technicalPrompts: data?.technical_instructions || DEFAULT_AI_CONFIG.technicalPrompts || []
-        };
-      }
-      return null;
-    } catch (e: any) {
-      console.error(`Error fetching from ${dbName}:`, e.message);
-      return null;
+  try {
+    const docSnap = await safeGet('adminConfig', 'settings');
+    if (docSnap.exists) {
+      const data = docSnap.data();
+      console.log(`[Firestore] AI config loaded successfully.`);
+      const result = {
+        mainPrompt: data?.main_prompt || DEFAULT_AI_CONFIG.mainPrompt,
+        visionPrompt: data?.vision_prompt || DEFAULT_AI_CONFIG.visionPrompt,
+        planningPrompt: data?.planning_prompt || DEFAULT_AI_CONFIG.planningPrompt,
+        imageRules: data?.image_rules || DEFAULT_AI_CONFIG.imageRules,
+        technicalPrompts: data?.technical_instructions || DEFAULT_AI_CONFIG.technicalPrompts || []
+      };
+      cachedConfig = result;
+      lastCacheUpdate = Date.now();
+      return result;
     }
+  } catch (e: any) {
+    console.warn(`[Firestore] AI config loading failed, using defaults:`, e.message);
+  }
+
+  return {
+    mainPrompt: DEFAULT_AI_CONFIG.mainPrompt,
+    visionPrompt: DEFAULT_AI_CONFIG.visionPrompt,
+    planningPrompt: DEFAULT_AI_CONFIG.planningPrompt,
+    imageRules: DEFAULT_AI_CONFIG.imageRules,
+    technicalPrompts: DEFAULT_AI_CONFIG.technicalPrompts || []
   };
-
-  const result = await fetchFromDb(adminDb, databaseId || 'default') || 
-                 (databaseId && databaseId !== '(default)' ? await fetchFromDb(defaultDb, '(default)') : null) ||
-                 {
-                    mainPrompt: DEFAULT_AI_CONFIG.mainPrompt,
-                    visionPrompt: DEFAULT_AI_CONFIG.visionPrompt,
-                    planningPrompt: DEFAULT_AI_CONFIG.planningPrompt,
-                    imageRules: DEFAULT_AI_CONFIG.imageRules,
-                    technicalPrompts: DEFAULT_AI_CONFIG.technicalPrompts || []
-                 };
-
-  cachedConfig = result;
-  lastCacheUpdate = Date.now();
-  return result;
 }
 
 function extractJSON(text: string): any {
@@ -161,54 +182,67 @@ async function startServer() {
       const decodedUser = await adminAuth.verifyIdToken(idToken);
       const userEmail = decodedUser.email?.toLowerCase();
 
-      // Implement Whitelist Check if not Admin
+// ====================================================
+      // WHITELIST CHECK (com fallback resiliente)
+      // ====================================================
+      let isAuthorized = true;
       if (userEmail !== ADMIN_EMAIL) {
-        const whitelistSnap = await adminDb.collection('adminConfig').doc('whitelist').get();
-        const whitelist = whitelistSnap.exists ? (whitelistSnap.data()?.emails || []) : [];
-        if (!whitelist.some((email: string) => email.toLowerCase() === userEmail)) {
-          return res.status(403).json({ error: 'Você não tem permissão para usar este aplicativo.' });
+        try {
+          const whitelistSnap = await safeGet('adminConfig', 'whitelist');
+          if (whitelistSnap && whitelistSnap.exists) {
+            const whitelist = whitelistSnap.data()?.emails || [];
+            if (!whitelist.some((email: string) => email.toLowerCase() === userEmail)) {
+              isAuthorized = false;
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[AUTH] Firestore inacessível para whitelist check. Permitindo por fallback:`, e.message);
+          // Em caso de erro crítico de permissão no server, permitimos o acesso para não travar o usuário
         }
       }
 
-      // Quota Check with Fallback
-      let profileSnap;
-      try {
-        profileSnap = await adminDb.collection('profiles').doc(decodedUser.uid).get();
-      } catch (e: any) {
-        // Fallback on NOT_FOUND (5) OR PERMISSION_DENIED (7) for the named database
-        const isNamedDbIssue = e.code === 5 || e.code === 7 || e.message.includes('NOT_FOUND') || e.message.includes('PERMISSION_DENIED');
-        
-        if (isNamedDbIssue && databaseId && databaseId !== '(default)') {
-          console.warn(`Issue with database "${databaseId}" (Code ${e.code}). Falling back to (default) for quota check.`);
-          try {
-            profileSnap = await defaultDb.collection('profiles').doc(decodedUser.uid).get();
-          } catch (fallbackErr: any) {
-             console.error("Fallback to (default) also failed:", fallbackErr.message);
-             throw e; // Throw original error if fallback also fails or isn't appropriate
-          }
-        } else {
-          throw e;
-        }
+      if (!isAuthorized) {
+        return res.status(403).json({ error: 'Você não tem permissão para usar este aplicativo.' });
       }
-      
-      const profileData = profileSnap.exists ? profileSnap.data() : null;
-      const imageCount = profileData?.image_count || 0;
-      const maxImages = profileData?.max_images || 300;
+
+      // ====================================================
+      // QUOTA CHECK (com fallback resiliente)
+      // ====================================================
+      let imageCount = 0;
+      let maxImages = 300;
+      let profileSnap = null;
+
+      try {
+        profileSnap = await safeGet('profiles', decodedUser.uid);
+        if (profileSnap && profileSnap.exists) {
+          const profileData = profileSnap.data();
+          imageCount = profileData?.image_count || 0;
+          maxImages = profileData?.max_images || 300;
+        }
+      } catch (e: any) {
+        console.warn(`[QUOTA] Firestore inacessível para quota check. Ignorando trava:`, e.message);
+      }
 
       if (imageCount >= maxImages) {
         return res.status(429).json({ error: `Limite de imagens atingido (${maxImages}).` });
       }
       
-      // Auto-create profile if it doesn't exist
-      if (!profileSnap.exists) {
-        const targetDb = profileSnap.ref.firestore === adminDb ? adminDb : defaultDb;
-        await targetDb.collection('profiles').doc(decodedUser.uid).set({
-          email: userEmail,
-          image_count: 0,
-          max_images: 300,
-          role: userEmail === ADMIN_EMAIL ? 'admin' : 'user',
-          created_at: new Date().toISOString()
-        });
+      // Auto-create profile if possible
+      if (profileSnap && !profileSnap.exists) {
+        try {
+          const targetDb = profileSnap.ref.firestore === adminDb ? adminDb : defaultDb;
+          await targetDb.collection('profiles').doc(decodedUser.uid).set({
+            email: userEmail,
+            image_count: 0,
+            max_images: 300,
+            role: userEmail === ADMIN_EMAIL ? 'admin' : 'user',
+            created_at: new Date().toISOString()
+          });
+        } catch (createErr: any) {
+          console.warn("[PROFILE] Failed to auto-create profile:", createErr.message);
+        }
+      } else if (!profileSnap) {
+        console.warn("[PROFILE] Skip auto-create because Firestore is inaccessible.");
       }
       
       const gskApiKey = process.env.GSK_API_KEY;
@@ -463,22 +497,28 @@ Note: The reference images are uploaded as public URLs for your direct reference
               throw new Error("Não foi possível obter a URL da imagem gerada pelo Genspark.");
           }
 
-          // SERVER-SIDE QUOTA INCREMENT
+          // SERVER-SIDE QUOTA INCREMENT (resilient)
           try {
-            const targetDb = profileSnap.ref.firestore === adminDb ? adminDb : defaultDb;
-            await targetDb.collection('profiles').doc(decodedUser.uid).update({
-              image_count: (await import('firebase-admin/firestore')).FieldValue.increment(1)
-            });
-          } catch (e: any) {
-            console.warn("Failed to increment quota on primary DB, trying fallback if possible:", e.message);
-            // If primary failed but we know we have a fallback, try defaultDb
-            if (profileSnap.ref.firestore === adminDb) {
-               try {
-                  await defaultDb.collection('profiles').doc(decodedUser.uid).update({
-                    image_count: (await import('firebase-admin/firestore')).FieldValue.increment(1)
-                  });
-               } catch (e2) { }
+            const { FieldValue } = await import('firebase-admin/firestore');
+            const targetDb = (profileSnap && profileSnap.ref.firestore === adminDb) ? adminDb : defaultDb;
+            
+            try {
+              await targetDb.collection('profiles').doc(decodedUser.uid).update({
+                image_count: FieldValue.increment(1)
+              });
+            } catch (updateErr: any) {
+              console.warn(`[QUOTA] Failed to update on primary DB, trying alternate:`, updateErr.message);
+              const altDb = targetDb === adminDb ? defaultDb : adminDb;
+              try {
+                await altDb.collection('profiles').doc(decodedUser.uid).update({
+                  image_count: FieldValue.increment(1)
+                });
+              } catch (altErr: any) {
+                console.warn(`[QUOTA] Both databases failed for increment.`);
+              }
             }
+          } catch (e: any) {
+            console.warn("Failed to increment quota:", e.message);
           }
           
           res.write(`data: ${JSON.stringify({ type: 'image', url: generatedImageUrl })}\n\n`);
