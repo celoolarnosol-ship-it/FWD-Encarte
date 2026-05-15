@@ -17,15 +17,14 @@ try {
     console.log(`[Firebase Admin] Found config file at ${configPath}`);
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     console.log(`[Firebase Admin] Config contents: ${JSON.stringify({ projectId: config.projectId, firestoreDatabaseId: config.firestoreDatabaseId })}`);
-// Use the PROJECT ID from config if missing in env, or vice-versa
-// Always prefer the config's project ID if it exists to ensure we match the user's manually set up project
-const envProjectId = process.env.GOOGLE_CLOUD_PROJECT;
-if (config.projectId) {
-  projectId = config.projectId;
-  console.log(`[Firebase Admin] Using Project ID from config: "${projectId}"`);
-} else if (envProjectId) {
+// Use the PROJECT ID from environment if available (ADC usually needs this), otherwise fallback to config
+const envProjectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
+if (envProjectId) {
   projectId = envProjectId;
   console.log(`[Firebase Admin] Using Project ID from Environment: "${projectId}"`);
+} else if (config.projectId) {
+  projectId = config.projectId;
+  console.log(`[Firebase Admin] Using Project ID from config: "${projectId}"`);
 }
 
 // Always prefer the named database from config if the env is missing or a default placeholder
@@ -43,10 +42,12 @@ if (config.firestoreDatabaseId && isDefaultId(databaseId)) {
 // Final fallback
 if (isDefaultId(databaseId)) databaseId = "(default)";
 
+console.log(`[Firebase Admin] DEBUG: process.env.GOOGLE_CLOUD_PROJECT = "${process.env.GOOGLE_CLOUD_PROJECT}"`);
+console.log(`[Firebase Admin] DEBUG: process.env.FIREBASE_PROJECT_ID = "${process.env.FIREBASE_PROJECT_ID}"`);
 console.log(`[Firebase Admin] Project ID: "${projectId || 'AUTO-DETECT'}", Database ID: "${databaseId}"`);
 
-// In Cloud Run / AI Studio, it's often better to explicitly provide the projectId
-// if we have one from the config file, to avoid guessing the wrong one in shared environments.
+// In Cloud Run / AI Studio, it's often better to NOT provide a projectId if we want to use ADC for the current project.
+// However, if we MUST use a specific one from config that might be different, we provide it.
 const appOptions: any = {};
 if (projectId) {
     appOptions.projectId = projectId;

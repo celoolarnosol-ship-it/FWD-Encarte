@@ -30,13 +30,13 @@ export default function AdminDashboard() {
 
   const loadAuthorizedUsers = async () => {
     try {
-        const docSnap = await getDoc(doc(db, 'config', 'whitelist'));
+        const docSnap = await getDoc(doc(db, 'adminConfig', 'whitelist'));
         if (docSnap.exists()) {
             setAuthorizedUsers(docSnap.data().emails || []);
         }
     } catch (e) {
         console.error("Erro ao carregar whitelist:", e);
-        handleFirestoreError(e, OperationType.GET, 'config/whitelist');
+        handleFirestoreError(e, OperationType.GET, 'adminConfig/whitelist');
     }
   };
 
@@ -53,7 +53,7 @@ export default function AdminDashboard() {
 
     const newList = [...authorizedUsers, newUserEmail.toLowerCase()];
     try {
-        await setDoc(doc(db, 'config', 'whitelist'), {
+        await setDoc(doc(db, 'adminConfig', 'whitelist'), {
             emails: newList,
             updated_at: serverTimestamp()
         });
@@ -68,7 +68,7 @@ export default function AdminDashboard() {
   const handleRemoveUser = async (email: string) => {
     const newList = authorizedUsers.filter(e => e !== email);
     try {
-        await setDoc(doc(db, 'config', 'whitelist'), {
+        await setDoc(doc(db, 'adminConfig', 'whitelist'), {
             emails: newList,
             updated_at: serverTimestamp()
         });
@@ -95,7 +95,7 @@ export default function AdminDashboard() {
   const loadConfig = async () => {
     setLoading(true);
     try {
-        const docSnap = await getDoc(doc(db, 'config', 'settings'));
+        const docSnap = await getDoc(doc(db, 'adminConfig', 'settings'));
         if (docSnap.exists()) {
             const data = docSnap.data();
             setMainPrompt(data.main_prompt || STATIC_AI_CONFIG.mainPrompt);
@@ -114,7 +114,7 @@ export default function AdminDashboard() {
   const handleSave = async () => {
     setSaving(true);
     try {
-        await setDoc(doc(db, 'config', 'settings'), {
+        await setDoc(doc(db, 'adminConfig', 'settings'), {
             main_prompt: mainPrompt,
             vision_prompt: visionPrompt,
             planning_prompt: planningPrompt,

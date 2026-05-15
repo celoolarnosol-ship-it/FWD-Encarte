@@ -26,7 +26,7 @@ export default function App() {
           
           // Whitelist check
           if (!isAdmin) {
-              const whitelistSnap = await getDoc(doc(db, 'config', 'whitelist'));
+              const whitelistSnap = await getDoc(doc(db, 'adminConfig', 'whitelist'));
               const authorizedEmails = whitelistSnap.exists() ? (whitelistSnap.data().emails || []) : [];
               if (!authorizedEmails.map((e: string) => e.toLowerCase()).includes(firebaseUser.email?.toLowerCase())) {
                   await auth.signOut();

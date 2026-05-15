@@ -19,7 +19,7 @@ export function GoogleLoginButton() {
 
       // Whitelist check
       if (user.email.toLowerCase() !== 'celoolarnosol@gmail.com') {
-          const whitelistSnap = await getDoc(doc(db, 'config', 'whitelist'));
+          const whitelistSnap = await getDoc(doc(db, 'adminConfig', 'whitelist'));
           const authorizedEmails = whitelistSnap.exists() ? (whitelistSnap.data().emails || []) : [];
           
           if (!authorizedEmails.map((e: string) => e.toLowerCase()).includes(user.email.toLowerCase())) {
