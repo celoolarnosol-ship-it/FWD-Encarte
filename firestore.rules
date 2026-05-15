@@ -10,8 +10,8 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { 
       return isSignedIn() && (
-        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin')
-        || (request.auth.token.email == 'celoolarnosol@gmail.com' && request.auth.token.email_verified == true)
+        (request.auth.token.email == 'celoolarnosol@gmail.com' && request.auth.token.email_verified == true)
+        || (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin')
       ); 
     }
     function incoming() { return request.resource.data; }
@@ -69,13 +69,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 2. Config
-    match /config/settings {
+    // 2. adminConfig (Updated to match DB)
+    match /adminConfig/settings {
       allow get: if isSignedIn();
       allow write: if isAdmin() && isValidAppConfig(incoming());
     }
 
-    match /config/whitelist {
+    match /adminConfig/whitelist {
       allow get: if isSignedIn(); // Users need to check if they are whitelisted on login
       allow write: if isAdmin();
     }

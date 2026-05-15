@@ -32,7 +32,7 @@
       "schema": "Profile",
       "description": "User profiles"
     },
-    "/config/settings": {
+    "/adminConfig/settings": {
       "schema": "AppConfig",
       "description": "System configuration with prompts"
     }

@@ -23,7 +23,7 @@ async function getAIConfig() {
   const fetchFromDb = async (db: any, dbName: string) => {
     try {
       console.log(`Attempting to fetch AI config from Firestore (${dbName})...`);
-      const docSnap = await db.collection('config').doc('settings').get();
+      const docSnap = await db.collection('adminConfig').doc('settings').get();
       if (docSnap.exists) {
         const data = docSnap.data();
         console.log(`AI config fetched successfully from ${dbName}.`);
@@ -106,6 +106,7 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
+  app.set('trust proxy', 1);
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -113,7 +114,14 @@ async function startServer() {
   const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 10,
-    message: { error: 'Limite de requisições excedido. Tente novamente em 1 minuto.' }
+    message: { error: 'Limite de requisições excedido. Tente novamente em 1 minuto.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      const forwarded = req.headers['x-forwarded-for'];
+      if (typeof forwarded === 'string') return forwarded.split(',')[0];
+      return req.ip || 'unknown';
+    }
   });
 
   app.get('/api/health', (req, res) => {
@@ -156,7 +164,7 @@ async function startServer() {
 
       // Implement Whitelist Check if not Admin
       if (userEmail !== ADMIN_EMAIL) {
-        const whitelistSnap = await adminDb.collection('config').doc('whitelist').get();
+        const whitelistSnap = await adminDb.collection('adminConfig').doc('whitelist').get();
         const whitelist = whitelistSnap.exists ? (whitelistSnap.data()?.emails || []) : [];
         if (!whitelist.some((email: string) => email.toLowerCase() === userEmail)) {
           return res.status(403).json({ error: 'Você não tem permissão para usar este aplicativo.' });
