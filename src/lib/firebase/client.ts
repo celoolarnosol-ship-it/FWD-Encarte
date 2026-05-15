@@ -1,11 +1,35 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../../firebase-applet-config.json';
+import firebaseAppletConfig from '../../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+const config = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const app = initializeApp(config);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+const envDbId = (import.meta.env.VITE_FIRESTORE_DB_ID || '').trim();
+const configDbId = firebaseAppletConfig.firestoreDatabaseId;
+
+function isDefaultId(id: string) {
+  return !id || id === '(default)' || id === 'default';
+}
+
+// Prefer config's databaseId if env is missing or is a default placeholder, 
+// since AI Studio applets usually get a dedicated named database.
+const effectiveDbId = isDefaultId(envDbId) 
+  ? (configDbId || '(default)')
+  : envDbId;
+
+console.log(`[Firebase Client] Final Database ID: "${effectiveDbId}"`);
+export const db = getFirestore(app, isDefaultId(effectiveDbId) ? undefined : effectiveDbId);
 
 // Test Connection
 async function testConnection() {

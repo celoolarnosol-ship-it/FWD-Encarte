@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Paperclip, Send, Loader2, RefreshCw, Square, Monitor, Smartphone, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Paperclip, Send, Loader2, RefreshCw, Square, Monitor, Smartphone, Download, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuthStore } from '../stores/authStore';
@@ -7,9 +7,8 @@ import { useChatStore } from '../stores/chatStore';
 import { useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { toast } from 'sonner';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase/client';
-import { doc, collection, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { AI_CONFIG as STATIC_AI_CONFIG } from '../constants/aiConfig';
+import { auth, db } from '../lib/firebase/client';
+import { doc, getDoc } from 'firebase/firestore';
 
 type AspectRatio = '1:1' | '16:9' | '9:16';
 
@@ -22,30 +21,22 @@ export default function ChatPage() {
   const { messages, setMessages, addMessage } = useChatStore();
   const [isLoading, setIsLoading] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
-  const [aiConfig, setAiConfig] = useState({
-    mainPrompt: STATIC_AI_CONFIG.mainPrompt,
-    technicalPrompts: STATIC_AI_CONFIG.technicalPrompts
-  });
+  const [currentStatus, setCurrentStatus] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch AI Config from Firebase on mount
+  // Manage Object URLs for preview images to prevent memory leaks
+  const imagePreviews = useMemo(() => {
+    const urls = images.map(img => URL.createObjectURL(img));
+    return urls;
+  }, [images]);
+
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const configDoc = await getDoc(doc(db, 'config', 'settings'));
-        if (configDoc.exists()) {
-          const data = configDoc.data();
-          setAiConfig({
-            mainPrompt: data.main_prompt || STATIC_AI_CONFIG.mainPrompt,
-            technicalPrompts: data.technical_instructions || STATIC_AI_CONFIG.technicalPrompts
-          });
-        }
-      } catch (err) {
-        console.warn('Failed to fetch from Firebase, using static config', err);
-      }
+    return () => {
+      imagePreviews.forEach(url => URL.revokeObjectURL(url));
     };
-    fetchConfig();
-    
+  }, [imagePreviews]);
+
+  useEffect(() => {
     // Reset state for new flyer
     setMessages([]);
     setIsFinished(false);
@@ -67,14 +58,15 @@ export default function ChatPage() {
     if (!message.trim() && images.length === 0) return;
     if (isLoading || isFinished) return;
 
-    setIsLoading(true);
-    
-    // Use the fetched AI config
-    let systemPrompt = aiConfig.mainPrompt;
-    if (aiConfig.technicalPrompts.length > 0) {
-        systemPrompt += `\n\nORIENTAÇÕES TÉCNICAS:\n${aiConfig.technicalPrompts.map((p: string, i: number) => `${i + 1}. ${p}`).join('\n')}`;
+    // Preventive Quota Check
+    if (userData && userData.image_count >= (userData.max_images || 300)) {
+        toast.error(`Você atingiu o limite de ${userData.max_images || 300} imagens.`);
+        return;
     }
 
+    setIsLoading(true);
+    setCurrentStatus('Iniciando...');
+    
     const currentMessage = message;
     const currentImages = [...images];
     
@@ -86,7 +78,7 @@ export default function ChatPage() {
         userId: auth.currentUser?.uid || 'anon',
         role: 'user' as const,
         content: currentMessage,
-        imageUrls: currentImages.map(img => URL.createObjectURL(img)),
+        imageUrls: [...imagePreviews], // Use the memoized previews
         generatedImageUrls: [],
         createdAt: Date.now()
     };
@@ -96,9 +88,9 @@ export default function ChatPage() {
     setImages([]);
 
     try {
-        const messagesPayload: any[] = [ { role: "system", content: systemPrompt } ];
+        const messagesPayload: any[] = [];
         
-        // Helper to resize image and convert to base64
+        // Helper to resize image and convert to base64 with cleanup
         const processImage = (file: File): Promise<string> => {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -129,7 +121,14 @@ export default function ChatPage() {
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx?.drawImage(img, 0, 0, width, height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                        const result = canvas.toDataURL('image/jpeg', 0.6);
+                        
+                        // ✅ Cleanup canvas and image
+                        canvas.width = 0;
+                        canvas.height = 0;
+                        img.src = '';
+                        
+                        resolve(result);
                     };
                     img.onerror = reject;
                 };
@@ -137,32 +136,15 @@ export default function ChatPage() {
             });
         };
 
-        // Add history and current message
-        for (const msg of [...messages, tempUserMsg]) {
-            if (msg.role === 'user') {
-                const contentArr: any[] = [{ type: "text", text: msg.content }];
-                
-                // If this is the current active message, use the actual Files to get resized base64
-                if (msg.id === userMsgId && currentImages.length > 0) {
-                    const base64Promises = currentImages.map(file => processImage(file).catch(e => {
-                        console.error("Image processing failed", e);
-                        return null;
-                    }));
-                    
-                    const base64Results = await Promise.all(base64Promises);
-                    
-                    for (const base64 of base64Results) {
-                        if (base64) {
-                            contentArr.push({ type: "image_url", image_url: { url: base64, detail: "auto" } });
-                        }
-                    }
-                }
-
-                messagesPayload.push({ role: "user", content: contentArr });
-            } else if (msg.role === 'assistant') {
-                messagesPayload.push({ role: "assistant", content: msg.content });
+        // Build minimal payload (history is handled by server now or stateless context)
+        const contentArr: any[] = [{ type: "text", text: currentMessage }];
+        if (currentImages.length > 0) {
+            const base64Results = await Promise.all(currentImages.map(file => processImage(file).catch(() => null)));
+            for (const base64 of base64Results) {
+                if (base64) contentArr.push({ type: "image_url", image_url: { url: base64, detail: "auto" } });
             }
         }
+        messagesPayload.push({ role: "user", content: contentArr });
 
         const token = await auth.currentUser?.getIdToken();
         const response = await fetch('/api/chat/send', {
@@ -173,7 +155,6 @@ export default function ChatPage() {
             },
             body: JSON.stringify({ 
                 messages: messagesPayload, 
-                config: STATIC_AI_CONFIG,
                 aspect_ratio: aspectRatio 
             })
         });
@@ -187,9 +168,9 @@ export default function ChatPage() {
             } else {
                 try {
                     const errorData = JSON.parse(errorText);
-                    toast.error(`Erro da IA: ${errorData.error || errorData.message || 'Erro desconhecido'}`);
+                    toast.error(`Falha no Processamento: ${errorData.error || errorData.message || 'Erro desconhecido'}`);
                 } catch (e) {
-                    toast.error(`Erro na resposta da IA: ${response.status}`);
+                    toast.error(`Erro inesperado do servidor: ${response.status}`);
                 }
             }
             setIsLoading(false);
@@ -220,14 +201,20 @@ export default function ChatPage() {
                         try {
                             const data = JSON.parse(dataText);
                             if (data.type === 'error') {
-                                toast.error(`Erro da IA: ${data.message || 'Erro inesperado'}`);
+                                toast.error(`Erro: ${data.message || 'Erro inesperado'}`);
                                 setIsLoading(false);
                                 return;
                             }
+                            if (data.type === 'status') {
+                                const statusMap: Record<string, string> = {
+                                    'analyzing_images': '🔍 Analisando produtos...',
+                                    'planning_design': '📋 Planejando o design...',
+                                    'generating_image': '🎨 Gerando imagem HD (2K)...'
+                                };
+                                setCurrentStatus(statusMap[data.content] || data.content);
+                            }
                             if (data.type === 'text') {
                                 assistantContent += data.content;
-                                // We update the store iteratively for streaming feel
-                                // But for simplicity here we'll collect and show status
                             }
                             if (data.type === 'image') {
                                 assistantImageUrls = [data.url];
@@ -235,8 +222,7 @@ export default function ChatPage() {
                             if (data.type === 'done') {
                                 addMessage({
                                     id: assistantMsgId,
-                                    chatId: 'ephemeral',
-                                    userId: 'assistant',
+                                    userId: auth.currentUser?.uid || 'anon',
                                     role: 'assistant',
                                     content: data.fullText || assistantContent,
                                     imageUrls: [],
@@ -244,11 +230,12 @@ export default function ChatPage() {
                                     createdAt: Date.now()
                                 });
 
-                                // Increment usage in Firebase
+                                // Sync profile data
                                 if (auth.currentUser) {
-                                    const newCount = (userData?.image_count || 0) + 1;
-                                    await setDoc(doc(db, 'profiles', auth.currentUser.uid), { image_count: newCount }, { merge: true });
-                                    setUserData({ ...userData!, image_count: newCount });
+                                    const profDoc = await getDoc(doc(db, 'profiles', auth.currentUser.uid));
+                                    if (profDoc.exists()) {
+                                        setUserData({ ...userData!, ...profDoc.data() });
+                                    }
                                 }
                                 
                                 setIsFinished(true);
@@ -264,6 +251,23 @@ export default function ChatPage() {
         toast.error("Ocorreu um erro ao processar sua solicitação.");
     } finally {
         setIsLoading(false);
+    }
+  };
+
+  const handleDownload = async (url: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `encarte-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      window.open(url, '_blank');
     }
   };
 
@@ -342,7 +346,7 @@ export default function ChatPage() {
                       <div className="mt-4 bg-indigo-50 border border-indigo-100 p-4 rounded-2xl shadow-sm inline-block w-full max-w-sm">
                           <div className="flex items-center gap-3 mb-4">
                              <div className="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-md">
-                                <Square size={20} className="fill-white" />
+                                <CheckCircle2 size={20} className="fill-white text-indigo-600" />
                              </div>
                              <div>
                                 <p className="font-bold text-indigo-900 text-sm">Encarte Pronto!</p>
@@ -350,19 +354,25 @@ export default function ChatPage() {
                              </div>
                           </div>
                           
+                          <div className="mb-4 rounded-xl overflow-hidden border border-indigo-200 shadow-sm bg-white">
+                              <img 
+                                src={msg.generatedImageUrls[0]} 
+                                alt="Encarte gerado" 
+                                className="w-full h-auto cursor-zoom-in"
+                                onClick={() => window.open(msg.generatedImageUrls[0], '_blank')}
+                                loading="lazy"
+                              />
+                          </div>
+                          
                           <div className="flex flex-col gap-2">
-                             <a 
-                                href={msg.generatedImageUrls[0]} 
-                                download={`encarte-${Date.now()}.png`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl text-sm font-bold transition-all text-center shadow-md flex items-center justify-center gap-2"
+                             <Button 
+                                onClick={() => handleDownload(msg.generatedImageUrls[0])}
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-6 rounded-xl text-sm font-bold transition-all text-center shadow-md flex items-center justify-center gap-2"
                              >
                                 <Download size={18} />
-                                Baixar Encarte em Alta Definição (2K)
-                             </a>
+                                Baixar em Alta Definição (2K)
+                             </Button>
                           </div>
-                          <p className="mt-3 text-[10px] text-center text-indigo-400 font-medium italic">A imagem não é exibida no chat para garantir rapidez. Use os botões acima.</p>
                       </div>
                   )}
                 </div>
@@ -372,7 +382,7 @@ export default function ChatPage() {
                 <div className="flex justify-start">
                     <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex items-center gap-3">
                         <Loader2 className="w-5 h-5 animate-spin text-[var(--color-primary)]" />
-                        <span className="text-sm text-slate-600 font-medium">Gerando o roteiro e o encarte...</span>
+                        <span className="text-sm text-slate-600 font-medium">{currentStatus || 'Iniciando...'}</span>
                     </div>
                 </div>
             )}
@@ -400,9 +410,9 @@ export default function ChatPage() {
             <>
               {images.length > 0 && (
                 <div className="flex gap-2 p-2 overflow-x-auto border-b border-[#E5E7EB] mb-1">
-                  {images.map((img, i) => (
+                  {imagePreviews.map((url, i) => (
                     <div key={i} className="relative w-16 h-16 flex-shrink-0 group rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-                      <img src={URL.createObjectURL(img)} alt="upload" className="w-full h-full object-cover" />
+                      <img src={url} alt="upload" className="w-full h-full object-cover" />
                       <button 
                         onClick={() => setImages(images.filter((_, idx) => idx !== i))}
                         className="absolute top-1 right-1 bg-white/80 backdrop-blur text-red-500 hover:bg-red-500 hover:text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-all shadow-sm"

@@ -1,6 +1,6 @@
 {
-  "name": "FWD ENCARTE",
-  "description": "Aplicativo para criação e gerenciamento de encartes de supermercado com suporte a upload de arquivos e processamento via IA.",
+  "name": "EncartIA - Encarte Inteligente",
+  "description": "Criação profissional de encartes de supermercado usando Inteligência Artificial. Envie suas fotos e gere arte em alta definição instantaneamente.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

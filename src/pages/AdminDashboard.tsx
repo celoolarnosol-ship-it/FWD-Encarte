@@ -15,6 +15,9 @@ export default function AdminDashboard() {
   const [saving, setSaving] = useState(false);
   
   const [mainPrompt, setMainPrompt] = useState(STATIC_AI_CONFIG.mainPrompt);
+  const [visionPrompt, setVisionPrompt] = useState(STATIC_AI_CONFIG.visionPrompt);
+  const [planningPrompt, setPlanningPrompt] = useState(STATIC_AI_CONFIG.planningPrompt);
+  const [imageRules, setImageRules] = useState(STATIC_AI_CONFIG.imageRules);
   const [techInst, setTechInst] = useState<string[]>(STATIC_AI_CONFIG.technicalPrompts);
   const [newUserEmail, setNewUserEmail] = useState('');
   const [authorizedUsers, setAuthorizedUsers] = useState<string[]>([]);
@@ -96,6 +99,9 @@ export default function AdminDashboard() {
         if (docSnap.exists()) {
             const data = docSnap.data();
             setMainPrompt(data.main_prompt || STATIC_AI_CONFIG.mainPrompt);
+            setVisionPrompt(data.vision_prompt || STATIC_AI_CONFIG.visionPrompt);
+            setPlanningPrompt(data.planning_prompt || STATIC_AI_CONFIG.planningPrompt);
+            setImageRules(data.image_rules || STATIC_AI_CONFIG.imageRules);
             setTechInst(data.technical_instructions || STATIC_AI_CONFIG.technicalPrompts);
         }
     } catch (e) {
@@ -110,6 +116,9 @@ export default function AdminDashboard() {
     try {
         await setDoc(doc(db, 'config', 'settings'), {
             main_prompt: mainPrompt,
+            vision_prompt: visionPrompt,
+            planning_prompt: planningPrompt,
+            image_rules: imageRules,
             technical_instructions: techInst,
             updated_at: serverTimestamp()
         });
@@ -228,13 +237,50 @@ export default function AdminDashboard() {
       <div className="bg-white rounded-xl shadow-sm border p-6 space-y-8">
         <div>
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            Prompt Principal (Brain)
+            Prompt Principal (System)
           </h3>
+          <p className="text-xs text-slate-500 mb-2">Orientações de identidade, tom de voz e regras de ouro do sistema.</p>
           <Textarea 
             value={mainPrompt}
             onChange={(e) => setMainPrompt(e.target.value)}
-            className="min-h-[300px] font-mono text-sm leading-relaxed"
-            placeholder="Insira o prompt principal aqui..."
+            className="min-h-[150px] font-mono text-xs leading-relaxed"
+            placeholder="Prompt principal..."
+          />
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            Vision Prompt (Análise de Imagens)
+          </h3>
+          <Textarea 
+            value={visionPrompt}
+            onChange={(e) => setVisionPrompt(e.target.value)}
+            className="min-h-[150px] font-mono text-sm leading-relaxed"
+            placeholder="Prompt de visão..."
+          />
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            Planning Prompt (Roteiro/Briefing)
+          </h3>
+          <Textarea 
+            value={planningPrompt}
+            onChange={(e) => setPlanningPrompt(e.target.value)}
+            className="min-h-[150px] font-mono text-sm leading-relaxed"
+            placeholder="Prompt de planejamento..."
+          />
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            Image Generation Rules (Regras Finais)
+          </h3>
+          <Textarea 
+            value={imageRules}
+            onChange={(e) => setImageRules(e.target.value)}
+            className="min-h-[150px] font-mono text-sm leading-relaxed"
+            placeholder="Regras de imagem..."
           />
         </div>
 

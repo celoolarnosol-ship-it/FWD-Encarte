@@ -1,22 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Outlet, useNavigate, Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase/client';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { auth } from '../lib/firebase/client';
 import { Button } from '@/components/ui/button';
-import { Menu, Plus, Settings, LogOut, MessageSquare, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { Menu, Plus, Settings, LogOut } from 'lucide-react';
 
 export default function ChatLayout() {
   const { userData } = useAuthStore();
-  const { chats, setChats, activeChatId, setActiveChatId } = useChatStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  useEffect(() => {
-    // We no longer sync chats from Firestore for regular users
-  }, []);
 
   const handleLogout = async () => {
     await auth.signOut();
@@ -115,9 +108,8 @@ export default function ChatLayout() {
                <Menu className="w-6 h-6" />
              </button>
              <h2 className="font-bold text-slate-800 truncate max-w-[200px] md:max-w-md">
-               {activeChatId ? chats.find(c => c.id === activeChatId)?.title || 'Chat' : 'EncartIA — Novo Encarte'}
+               EncartIA — Novo Encarte
              </h2>
-             {activeChatId && <span className="hidden sm:inline-block bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight">Ativo</span>}
           </div>
           {userData?.role === 'admin' && (
               <button onClick={() => navigate('/admin')} className="text-slate-400 hover:text-slate-600 font-medium hidden sm:flex items-center gap-2 text-sm transition-colors">
