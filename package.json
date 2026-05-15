@@ -8,9 +8,10 @@
     "start": "node dist/server.cjs",
     "build:server": "esbuild server.ts --platform=node --target=node18 --bundle --outfile=dist/server.cjs --format=cjs",
     "build": "vite build && npm run build:server",
-    "preview": "vite preview",
+    "preview": "npm run build && wrangler dev",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",
@@ -41,6 +42,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.37.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
@@ -49,6 +51,7 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "wrangler": "^4.92.0"
   }
 }
